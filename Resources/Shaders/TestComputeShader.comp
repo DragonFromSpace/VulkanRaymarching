@@ -1,0 +1,273 @@
+#version 460
+
+layout(local_size_x = 32, local_size_y = 32) in;
+
+layout(rgba32f, set = 0, binding = 0) uniform image2D outputImage;
+
+layout(set = 0, binding = 1) buffer Dimensions
+{
+    uint dimX;
+    uint dimY;
+} dimensions;
+
+layout(set = 0, binding = 2) buffer SceneSettings
+{
+    mat4 viewMat;
+    mat4 viewInverseMat;
+    mat4 inverseProjMat;
+}sceneSettings;
+
+layout(set = 0, binding = 3) buffer LightSettings
+{
+    vec4 lightDir;
+    vec4 lightCol;
+}lightSettings;
+
+const float PI = 3.14159265f;
+const int MAX_MARCHING_STEPS = 255;
+const float MIN_DIST = 0.0f;
+const float MAX_DIST = 100.0f;
+const float EPSILON = 0.0001f;
+const float INFINITY = 1.0f / 0.0f;
+
+struct Ray
+{
+    vec3 origin;
+    vec3 direction;
+    vec3 energy;
+};
+
+struct RayHit
+{
+    vec3 pos;
+    float distance;
+    vec3 normal;
+};
+
+Ray CreateRay(vec3 origin, vec3 direction)
+{
+    Ray r;
+    r.origin = origin;
+    r.direction = direction;
+    r.energy = vec3(1.0f);
+    return r;
+}
+
+Ray CreateCameraRay(vec2 uv)
+{
+    //wpos of the camera
+    vec3 origin = sceneSettings.viewInverseMat[3].xyz; //camera pos = 4th column of the view matrix
+
+    vec3 direction = (sceneSettings.inverseProjMat * vec4(uv, 0.0f, 1.0f)).xyz; //invert the pixel coordinate 
+    direction = (sceneSettings.viewInverseMat * vec4(direction.xyz, 0.0f)).xyz;
+    direction = normalize(direction);
+
+    return CreateRay(origin, direction);
+};
+
+/*
+------------ SDF FUNCTIONS ------------------------
+*/
+//Sphere
+float SphereSDF(vec3 samplePoint, float radius)
+{
+	return length(samplePoint) - radius;
+}
+
+//Ground plane
+float GroundPlaneSDF(vec3 samplePoint)
+{
+	return samplePoint.y;
+}
+
+//Box
+float BoxSDF(vec3 samplePoint, vec3 dimensions)
+{
+	vec3 q = abs(samplePoint) - dimensions;
+	return length(max(q, 0.0)) + min(max(q.x, max(q.y, q.z)), 0.0);
+}
+
+//Rounded box
+float RoundBoxSDF(vec3 p, vec3 b, float r)
+{
+	vec3 q = abs(p) - b;
+	return length(max(q, 0.0)) + min(max(q.x, max(q.y, q.z)), 0.0) - r;
+}
+
+//Cylinder
+float CylinderSDF(vec3 p, float h, float r)
+{
+	vec2 d = abs(vec2(length(p.xz), p.y)) - vec2(r, h);
+	return min(max(d.x, d.y), 0.0) + length(max(d, 0.0));
+}
+/*
+--------------------------------------------------------------------------------------------------------------------------------------------------------------------
+*/
+
+
+
+/*
+------------ OPERATIONS ------------------------
+*/
+//Infinite Repetition (returns a value that needs to be entered into the primitive function)
+vec3 OpRep(vec3 p, vec3 c)
+{
+	//Make sure negative values work so the repetition doesnt start at 0,0,0
+	p = abs(p);
+    return mod(p + 0.5 * c, c) - 0.5 * c;
+}
+
+//Limited repetition
+// vec3 opRepLim(vec3 p, float c, vec3 l)
+// {
+// 	//clamp 0,l so it start the tiling at left bottom. That way l{2,1,3} will tile 2,1,3 instead of 4,6,2
+//     return p - c * clamp(round(p / c), 0, l);
+// }
+
+///////
+
+//Only keep overlapping geometry
+float IntersectSDF(float distA, float distB)
+{
+	return max(distA, distB);
+}
+
+//Add geometry together (Additive)
+float AdditiveSDF(float distA, float distB)
+{
+	return min(distA, distB);
+}
+
+//Only keep non-overlapping geometry (Subtractive)
+float SubtractiveSDF(float distA, float distB)
+{
+	return max(distA, -distB);
+}
+
+// float mix(float x, float y, float a)
+// {
+// 	return (x * (1 - a)) + (y * a);
+// }
+
+//Smooth addition
+float SmoothAdditiveSDF(float d1, float d2, float k) 
+{
+    float h = clamp(0.5 + 0.5 * (d2 - d1) / k, 0.0, 1.0);
+    return mix(d2, d1, h) - k * h * (1.0 - h);
+}
+
+//Smooth subtraction
+float SmoothSubtractiveSDF(float d1, float d2, float k) 
+{
+    float h = clamp(0.5 - 0.5 * (d2 + d1) / k, 0.0, 1.0);
+    return mix(d2, -d1, h) + k * h * (1.0 - h);
+}
+
+//Smooth intersection
+float SmoothIntersectionSDF(float d1, float d2, float k) 
+{
+    float h = clamp(0.5 - 0.5 * (d2 - d1) / k, 0.0, 1.0);
+    return mix(d2, d1, h) + k * h * (1.0 - h);
+}
+/*
+------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+*/
+
+float map(vec3 samplePoint)
+{
+    //DISTANCE FUNCTIONS
+    vec3 objectColor = vec3(1, 0, 0);
+
+    vec3 infRep = OpRep(samplePoint, vec3(6,6,6));
+    float boxDistance = SphereSDF(infRep, 1.0f);
+    //float box2 = BoxSDF(samplePoint, vec3(1,1,1));
+    //float box3 = BoxSDF(samplePoint - vec3(0,0,50), vec3(5,5,5));
+
+    //float d1 = AdditiveSDF(boxDistance, box2);
+    //float d2 = AdditiveSDF(d1, box3);
+
+    return boxDistance;
+
+    //return vec4(1,0,0,INFINITY);
+}
+
+float Trace(Ray ray, float start, float end)
+{
+    float depth = start;
+    for(int i = 0; i < MAX_MARCHING_STEPS; ++i)
+    {
+        float val = map(ray.origin + (depth * ray.direction));
+        if(val < EPSILON)
+            return depth;
+
+        depth += val;
+        if(depth >= end)
+            return end;
+    }
+
+    return end;
+}
+
+vec3 EstimateNormal(vec3 samplePoint)
+{
+	vec3 norm = vec3(map(vec3(samplePoint.x + EPSILON, samplePoint.y, samplePoint.z)) - map(vec3(samplePoint.x - EPSILON, samplePoint.y, samplePoint.z)),
+						 map(vec3(samplePoint.x, samplePoint.y + EPSILON, samplePoint.z)) - map(vec3(samplePoint.x, samplePoint.y - EPSILON, samplePoint.z)),
+						 map(vec3(samplePoint.x, samplePoint.y, samplePoint.z + EPSILON)) - map(vec3(samplePoint.x, samplePoint.y, samplePoint.z - EPSILON)));
+
+	return normalize(norm);
+}
+
+vec4 Shade(float tracedDistance, Ray ray, vec3 objectColor)
+{
+    if(tracedDistance > MAX_DIST - EPSILON)
+    {
+        //Return skybox color
+        return vec4(0.1f, 0.8f, 0.8f, 1.0f);
+    }
+
+    vec3 collisionPoint = ray.origin + (ray.direction * tracedDistance);
+    vec3 normal = EstimateNormal(collisionPoint);
+
+    //Ambient
+    float ambientStrength = 1.0f;
+    vec3 ambient = ambientStrength * lightSettings.lightCol.xyz;
+
+    //Diffuse
+    float diffuseStrength = max(dot(normal, -lightSettings.lightDir.xyz), 0.0f);
+    vec3 diffuse = diffuseStrength * lightSettings.lightCol.xyz;
+
+    //Blinn-phong
+    int shininess = 64;
+    vec3 lightDir = normalize(lightSettings.lightDir.xyz);
+    vec3 camForward = vec3(sceneSettings.viewMat[0][2], sceneSettings.viewMat[1][2], sceneSettings.viewMat[2][2]);
+    vec3 halfVec = normalize(-lightDir + camForward);
+    float spec = pow(max(dot(halfVec, normal), 0.0f), shininess);
+    vec3 specular = spec * lightSettings.lightCol.xyz;
+    vec3 resultCol = (ambient + diffuse + specular) * objectColor;
+
+    //return vec4(dot(halfVec, normal), dot(halfVec, normal), dot(halfVec, normal), 1.0f);
+    return vec4(resultCol, 1.0f);
+}
+
+void main()
+{
+    if(gl_GlobalInvocationID.x >= dimensions.dimX ||  gl_GlobalInvocationID.y >= dimensions.dimY)
+        return;
+    
+    uvec2 id = gl_GlobalInvocationID.xy;
+
+    uint width = dimensions.dimX;
+    uint height = dimensions.dimY;
+
+    //Create the ray from camera position to current pixel (+ (0.5, 0.5) is to get center of pixel)
+    vec2 uv = vec2((id.xy + vec2(0.5f, 0.5f)) / vec2(width, height) * 2.0f - 1.0f );
+    Ray ray = CreateCameraRay(uv);
+
+    float tracedValue = Trace(ray, MIN_DIST, MAX_DIST);
+    vec4 color = Shade(tracedValue, ray, vec3(0.4f, 0.1f, 0.5f));
+
+    //color = vec4(ray.direction, 1.0);
+
+    ivec2 imageUV = ivec2(int(gl_GlobalInvocationID.x), int(gl_GlobalInvocationID.y));
+    imageStore(outputImage, imageUV, color);
+}
