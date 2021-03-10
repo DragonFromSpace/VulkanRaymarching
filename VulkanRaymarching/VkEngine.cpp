@@ -14,14 +14,10 @@ void VkEngine::GLFWKeyCallback(GLFWwindow* window, int key, int scancode, int ac
 
 void VkEngine::GLFWMouseCallback(GLFWwindow* window, double xPos, double yPos)
 {
-	//std::cout << xPos << '\n';
 	//get movement normalized
 	glm::vec2 deltaMouse = _PrevMousePos - glm::vec2(xPos, yPos);
 
 	//Update camera rotation
-	//glm::mat4 horRotation = glm::rotate(glm::mat4(1.0f), glm::radians(deltaMouse.x), glm::vec3(0,1,0));
-	//glm::mat4 verRotation = glm::rotate(glm::mat4(1.0f), glm::radians(deltaMouse.y), glm::vec3(1, 0, 0));
-
 	_Camera.ProcessMouseMovement(deltaMouse.x, deltaMouse.y);
 
 	//Update pos
@@ -97,7 +93,6 @@ void VkEngine::DrawCompute()
 	//Create camera data
 	glm::mat4 view = _Camera.GetViewMatrix();
 	glm::mat4 proj = glm::perspective(glm::radians(70.0f), (float)m_WindowExtent.width / (float)m_WindowExtent.height, 0.1f, 200.0f);
-	//proj[1][1] *= -1;
 
 	GPUSceneData camData;
 	camData.ViewMat = view;
@@ -117,10 +112,6 @@ void VkEngine::DrawCompute()
 	vmaMapMemory(m_Allocator, GetCurrentFrame().lightBuffer.allocation, &data);
 	memcpy(data, &lightData, sizeof(GPULightData));
 	vmaUnmapMemory(m_Allocator, GetCurrentFrame().lightBuffer.allocation);
-
-	//wait for render fence before writing on the image
-	VK_CHECK(vkWaitForFences(m_Device, 1, &GetCurrentFrame().renderFence, true, UINT64_MAX), "VkEngine::Draw() >> Failed to wait for fences!");
-	VK_CHECK(vkResetFences(m_Device, 1, &GetCurrentFrame().renderFence), "VkEngine::Draw() >> Failed to reset fences!");
 
 	//Run the compute buffer
 	VkCommandBufferBeginInfo beginInfo = vkInit::CommandBufferBeginInfo(VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT);
@@ -159,44 +150,12 @@ void VkEngine::Draw()
 	uint32_t imageIndex;
 	VK_CHECK(vkAcquireNextImageKHR(m_Device, m_Swapchain, UINT64_MAX, GetCurrentFrame().presentSemaphore, nullptr, &imageIndex), "VkEngine::Draw() >> Failed to acquire next image in swapchain!");
 
-	//reset command buffer
-	VK_CHECK(vkResetCommandBuffer(GetCurrentFrame().commandBuffer, 0), "VkEngine::Draw() >> ");
-
-	//Begin render pass command buffer
-	VkCommandBufferBeginInfo cmdBeginInfo = vkInit::CommandBufferBeginInfo(VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT);
-	VK_CHECK(vkBeginCommandBuffer(GetCurrentFrame().commandBuffer, &cmdBeginInfo), "VkEngine::Draw() >> Failed to begin command buffer!");
-
-	VkRenderPassBeginInfo renderPassBeginInfo = vkInit::RenderPassBeginInfo(m_RenderPass, m_WindowExtent, m_Framebuffers[imageIndex]);
-
-	VkClearValue colorClearValue{};
-	colorClearValue.color = { 0.1f, 0.1f, 0.1f, 1.0f };
-
-	renderPassBeginInfo.clearValueCount = 1;
-	renderPassBeginInfo.pClearValues = &colorClearValue;
-
-	vkCmdBeginRenderPass(GetCurrentFrame().commandBuffer, &renderPassBeginInfo, VK_SUBPASS_CONTENTS_INLINE);
-	//No object to draw, but present images will be in correct layout after this
-	vkCmdEndRenderPass(GetCurrentFrame().commandBuffer);
-
-	VK_CHECK(vkEndCommandBuffer(GetCurrentFrame().commandBuffer), "VkEngine::Draw() >> Failed to end command buffer!");
-
-	//Submit commands to the queue
-	VkSubmitInfo submit = vkInit::SubmitInfo(&GetCurrentFrame().commandBuffer);
-
-	VkPipelineStageFlags waitStage = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
-	submit.pWaitDstStageMask = &waitStage;
-	submit.waitSemaphoreCount = 1;
-	submit.pWaitSemaphores = &GetCurrentFrame().presentSemaphore;
-	submit.signalSemaphoreCount = 1;
-	submit.pSignalSemaphores = &GetCurrentFrame().renderSemaphore;
-	VK_CHECK(vkQueueSubmit(m_GraphicsQueue, 1, &submit, GetCurrentFrame().renderFence), "VkEngine::Draw() >> Failed to submit the queue!");
-
-	//Display image to screen
+	//Present the image in the swapchain
 	VkPresentInfoKHR presentInfo = vkInit::PresentInfoKHR();
 	presentInfo.swapchainCount = 1;
 	presentInfo.pSwapchains = &m_Swapchain;
 	presentInfo.waitSemaphoreCount = 1;
-	presentInfo.pWaitSemaphores = &GetCurrentFrame().renderSemaphore;
+	presentInfo.pWaitSemaphores = &GetCurrentFrame().presentSemaphore;
 	presentInfo.pImageIndices = &imageIndex;
 	VK_CHECK(vkQueuePresentKHR(m_GraphicsQueue, &presentInfo), "VkEngine::Draw() >> Failed to present the queue!");
 
@@ -260,7 +219,7 @@ void VkEngine::InitSwapchain()
 	swapchainBuilder.use_default_format_selection();
 	swapchainBuilder.set_desired_present_mode(VK_PRESENT_MODE_FIFO_KHR);
 	swapchainBuilder.set_desired_extent(m_WindowExtent.width, m_WindowExtent.height);
-	swapchainBuilder.add_image_usage_flags(VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_STORAGE_BIT);
+	swapchainBuilder.add_image_usage_flags(VK_IMAGE_USAGE_STORAGE_BIT);
 
 	vkb::Swapchain vkbSwapchain = swapchainBuilder.build().value();
 	m_Swapchain = vkbSwapchain.swapchain;

@@ -145,7 +145,7 @@ private:
 	int m_FrameNumber = 0;
 	unsigned int m_FramesOverlapping = 2;
 
-	VkExtent2D m_WindowExtent{ 800, 600 };
+	VkExtent2D m_WindowExtent{ 1280, 720 };
 	GLFWwindow* m_pWindow = nullptr;
 
 	VkInstance m_Instance = VK_NULL_HANDLE;

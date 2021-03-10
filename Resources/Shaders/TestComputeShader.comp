@@ -39,10 +39,20 @@ struct Ray
 
 struct RayHit
 {
-    vec3 pos;
+    vec3 position;
     float distance;
     vec3 normal;
 };
+
+RayHit CreateRayHit()
+{
+    RayHit hit;
+    hit.position = vec3(0,0,0);
+    hit.distance = INFINITY;
+    hit.normal = vec3(0,0,0);
+
+    return hit;
+}
 
 Ray CreateRay(vec3 origin, vec3 direction)
 {
@@ -118,11 +128,11 @@ vec3 OpRep(vec3 p, vec3 c)
 }
 
 //Limited repetition
-// vec3 opRepLim(vec3 p, float c, vec3 l)
-// {
-// 	//clamp 0,l so it start the tiling at left bottom. That way l{2,1,3} will tile 2,1,3 instead of 4,6,2
-//     return p - c * clamp(round(p / c), 0, l);
-// }
+vec3 opRepLim(vec3 p, float c, vec3 l)
+{
+	//clamp 0,l so the left bottom of the tiling will be at (0,0), not at (-l / 2, l / 2). That way l{2,1,3} will tile 2,1,3 instead of 4,6,2
+    return p - c * clamp(round(p / c), vec3(0,0,0), l);
+}
 
 ///////
 
@@ -178,34 +188,18 @@ float map(vec3 samplePoint)
     //DISTANCE FUNCTIONS
     vec3 objectColor = vec3(1, 0, 0);
 
-    vec3 infRep = OpRep(samplePoint, vec3(6,6,6));
+    vec3 infRep = opRepLim(samplePoint, 6, vec3(10, 0, 10));
     float boxDistance = SphereSDF(infRep, 1.0f);
-    //float box2 = BoxSDF(samplePoint, vec3(1,1,1));
-    //float box3 = BoxSDF(samplePoint - vec3(0,0,50), vec3(5,5,5));
 
-    //float d1 = AdditiveSDF(boxDistance, box2);
-    //float d2 = AdditiveSDF(d1, box3);
+    float ground = GroundPlaneSDF(samplePoint - vec3(0, -12, 0));
 
-    return boxDistance;
+    vec3 camPos = sceneSettings.viewInverseMat[3].xyz;
+    float playerBox = BoxSDF(samplePoint - camPos - vec3(0, -1, 0), vec3(0.1f, 0.1f, 0.1f));
 
-    //return vec4(1,0,0,INFINITY);
-}
+    float combined = AdditiveSDF(ground, boxDistance);
+    float combined2 = AdditiveSDF(combined, playerBox);
 
-float Trace(Ray ray, float start, float end)
-{
-    float depth = start;
-    for(int i = 0; i < MAX_MARCHING_STEPS; ++i)
-    {
-        float val = map(ray.origin + (depth * ray.direction));
-        if(val < EPSILON)
-            return depth;
-
-        depth += val;
-        if(depth >= end)
-            return end;
-    }
-
-    return end;
+    return combined2;
 }
 
 vec3 EstimateNormal(vec3 samplePoint)
@@ -217,19 +211,56 @@ vec3 EstimateNormal(vec3 samplePoint)
 	return normalize(norm);
 }
 
-vec4 Shade(float tracedDistance, Ray ray, vec3 objectColor)
+RayHit Trace(Ray ray, float start, float end)
+{
+    float depth = start;
+    for(int i = 0; i < MAX_MARCHING_STEPS; ++i)
+    {
+        float val = map(ray.origin + (depth * ray.direction));
+        if(val < EPSILON)
+        {
+            RayHit hit = CreateRayHit();
+            hit.position = ray.origin + (ray.direction * depth);
+            hit.normal = EstimateNormal(hit.position);
+            hit.distance = depth;
+            return hit;
+        }
+
+        depth += val;
+        if(depth >= end)
+        {
+            return CreateRayHit();
+        }
+    }
+
+    return CreateRayHit();
+}
+
+vec3 ShadeRay(float tracedDistance, Ray ray, vec3 objectColor)
 {
     if(tracedDistance > MAX_DIST - EPSILON)
     {
         //Return skybox color
-        return vec4(0.1f, 0.8f, 0.8f, 1.0f);
+        return vec3(0.1f, 0.8f, 0.8f);
+    }
+
+    //Return the correct color of the pixel without computing light and shading
+    return objectColor;
+}
+
+vec3 Shade(float tracedDistance, Ray ray, vec3 objectColor)
+{
+    if(tracedDistance > MAX_DIST - EPSILON)
+    {
+        //Return skybox color
+        return vec3(0.1f, 0.8f, 0.8f);
     }
 
     vec3 collisionPoint = ray.origin + (ray.direction * tracedDistance);
     vec3 normal = EstimateNormal(collisionPoint);
 
     //Ambient
-    float ambientStrength = 1.0f;
+    float ambientStrength = 0.3f;
     vec3 ambient = ambientStrength * lightSettings.lightCol.xyz;
 
     //Diffuse
@@ -245,8 +276,7 @@ vec4 Shade(float tracedDistance, Ray ray, vec3 objectColor)
     vec3 specular = spec * lightSettings.lightCol.xyz;
     vec3 resultCol = (ambient + diffuse + specular) * objectColor;
 
-    //return vec4(dot(halfVec, normal), dot(halfVec, normal), dot(halfVec, normal), 1.0f);
-    return vec4(resultCol, 1.0f);
+    return resultCol;
 }
 
 void main()
@@ -261,13 +291,40 @@ void main()
 
     //Create the ray from camera position to current pixel (+ (0.5, 0.5) is to get center of pixel)
     vec2 uv = vec2((id.xy + vec2(0.5f, 0.5f)) / vec2(width, height) * 2.0f - 1.0f );
-    Ray ray = CreateCameraRay(uv);
+    Ray originalRay = CreateCameraRay(uv);
 
-    float tracedValue = Trace(ray, MIN_DIST, MAX_DIST);
-    vec4 color = Shade(tracedValue, ray, vec3(0.4f, 0.1f, 0.5f));
+    //float tracedValue = Trace(ray, MIN_DIST, MAX_DIST);
+    //vec4 color = Shade(tracedValue, ray, vec3(0.4f, 0.1f, 0.5f));
 
-    //color = vec4(ray.direction, 1.0);
+    vec3 OBJECTCOLOR = vec3(0.6f, 0.2f, 0.0f);
+    vec3 SPECULAR = vec3(0.6f, 0.6f, 0.6f);
+
+    //8 ray bounces
+    vec3 colorResult = vec3(0,0,0);
+    Ray ray = originalRay; //Backup the original to reflect with
+    for(int i = 0; i < 8; ++i)
+    {
+        if(i == 0)
+        {
+            //Apply shading on the final color
+            RayHit firstHit = Trace(originalRay, MIN_DIST, MAX_DIST);
+            OBJECTCOLOR = Shade(firstHit.distance, ray, OBJECTCOLOR);
+        }
+
+        RayHit hit = Trace(ray, MIN_DIST, MAX_DIST);
+        colorResult += ray.energy * ShadeRay(hit.distance, ray, OBJECTCOLOR);
+
+        if(ray.energy.x <= EPSILON || ray.energy.y <= EPSILON || ray.energy.z <= EPSILON)
+        {
+            break;
+        }
+
+        //Reflect ray
+        ray.origin = hit.position + (hit.normal * EPSILON);
+        ray.direction = reflect(ray.direction, hit.normal);
+        ray.energy *= SPECULAR;
+    }
 
     ivec2 imageUV = ivec2(int(gl_GlobalInvocationID.x), int(gl_GlobalInvocationID.y));
-    imageStore(outputImage, imageUV, color);
+    imageStore(outputImage, imageUV, vec4(colorResult, 1.0f));
 }
