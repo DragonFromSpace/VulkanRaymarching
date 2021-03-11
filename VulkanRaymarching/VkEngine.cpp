@@ -53,8 +53,6 @@ void VkEngine::Cleanup()
 {
 	if (m_IsInitialized)
 	{
-		vkWaitForFences(m_Device, 1, &GetCurrentFrame().renderFence, VK_TRUE, UINT64_MAX);
-
 		m_DeletionQueue.Flush();
 
 		vkDestroySurfaceKHR(m_Instance, m_WindowSurface, nullptr);
@@ -141,10 +139,8 @@ void VkEngine::DrawCompute()
 	submitInfo.pSignalSemaphores = nullptr;
 	vkQueueSubmit(m_ComputeQueue, 1, &submitInfo, GetCurrentFrame().computeFence);
 
-	std::cout << "WAITING" << '\n';
 	vkWaitForFences(m_Device, 1, &GetCurrentFrame().computeFence, VK_TRUE, UINT64_MAX);
 	vkResetFences(m_Device, 1, &GetCurrentFrame().computeFence);
-	std::cout << "DONE" << '\n';
 
 	vkResetCommandBuffer(GetCurrentFrame().computeCommandBuffer, 0);
 }
@@ -155,18 +151,50 @@ void VkEngine::Draw()
 	uint32_t imageIndex;
 	VK_CHECK(vkAcquireNextImageKHR(m_Device, m_Swapchain, UINT64_MAX, GetCurrentFrame().presentSemaphore, nullptr, &imageIndex), "VkEngine::Draw() >> Failed to acquire next image in swapchain!");
 
-	std::cout << "imageIndex: " << imageIndex << '\n';
-
 	//Transition image from undefined to src_present
+	VkCommandBufferBeginInfo beginInfo = vkInit::CommandBufferBeginInfo(VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT);
+	vkBeginCommandBuffer(GetCurrentFrame().graphicsCommandBuffer, &beginInfo);
 
+	VkImageMemoryBarrier barrier{};
+	barrier.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER;
+	barrier.oldLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+	barrier.newLayout = VK_IMAGE_LAYOUT_PRESENT_SRC_KHR;
+	barrier.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+	barrier.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
 
+	barrier.image = m_SwapchainImages[imageIndex];
+	barrier.subresourceRange.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+	barrier.subresourceRange.baseMipLevel = 0;
+	barrier.subresourceRange.levelCount = 1;
+	barrier.subresourceRange.baseArrayLayer = 0;
+	barrier.subresourceRange.layerCount = 1;
 
-	//Present the image in the swapchain
+	barrier.srcAccessMask = VkAccessFlagBits::VK_ACCESS_COLOR_ATTACHMENT_READ_BIT;
+	barrier.dstAccessMask = VkAccessFlagBits::VK_ACCESS_SHADER_READ_BIT;
+
+	vkCmdPipelineBarrier(GetCurrentFrame().graphicsCommandBuffer, VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT, VkPipelineStageFlagBits::VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, 0, 0, nullptr, 0, nullptr, 1, &barrier);
+
+	vkEndCommandBuffer(GetCurrentFrame().graphicsCommandBuffer);
+
+	VkPipelineStageFlags waitPipelineFlag = VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT;
+	VkSubmitInfo submitInfo = vkInit::SubmitInfo(&GetCurrentFrame().graphicsCommandBuffer);
+	submitInfo.waitSemaphoreCount = 1;
+	submitInfo.pWaitSemaphores = &GetCurrentFrame().presentSemaphore;
+	submitInfo.pWaitDstStageMask = &waitPipelineFlag;
+	submitInfo.signalSemaphoreCount = 1;
+	submitInfo.pSignalSemaphores = &GetCurrentFrame().imageTransSemaphore;
+
+	vkQueueSubmit(m_GraphicsQueue, 1, &submitInfo, GetCurrentFrame().imageTransFence);
+	vkWaitForFences(m_Device, 1, &GetCurrentFrame().imageTransFence, VK_TRUE, UINT64_MAX);
+	vkResetFences(m_Device, 1, &GetCurrentFrame().imageTransFence);
+	vkResetCommandBuffer(GetCurrentFrame().graphicsCommandBuffer, 0);
+
+	//PRESENT the image in the swapchain
 	VkPresentInfoKHR presentInfo = vkInit::PresentInfoKHR();
 	presentInfo.swapchainCount = 1;
 	presentInfo.pSwapchains = &m_Swapchain;
 	presentInfo.waitSemaphoreCount = 1;
-	presentInfo.pWaitSemaphores = &GetCurrentFrame().presentSemaphore;
+	presentInfo.pWaitSemaphores = &GetCurrentFrame().imageTransSemaphore;
 	presentInfo.pImageIndices = &imageIndex;
 	VK_CHECK(vkQueuePresentKHR(m_GraphicsQueue, &presentInfo), "VkEngine::Draw() >> Failed to present the queue!");
 
@@ -178,7 +206,7 @@ void VkEngine::InitVulkan()
 	//Create vulkan instance
 	vkb::InstanceBuilder instanceBuilder;
 	instanceBuilder.set_app_name("Vulkan Tutorial");
-	instanceBuilder.enable_validation_layers(true);
+	instanceBuilder.enable_validation_layers(m_EnableValidationLayers);
 	instanceBuilder.require_api_version(1, 1, 0);
 	instanceBuilder.use_default_debug_messenger();
 	vkb::detail::Result<vkb::Instance> vkbInstanceResult = instanceBuilder.build();
@@ -258,19 +286,19 @@ void VkEngine::InitCommands()
 
 	for (int i = 0; i < m_FramesOverlapping; ++i)
 	{
-		VK_CHECK(vkCreateCommandPool(m_Device, &commandPoolInfo, nullptr, &m_Frames[i].commandPool), "VkEngine::InitCommands() >> failed to create command pool!");
+		VK_CHECK(vkCreateCommandPool(m_Device, &commandPoolInfo, nullptr, &m_Frames[i].graphicsCommandPool), "VkEngine::InitCommands() >> failed to create command pool!");
 		VK_CHECK(vkCreateCommandPool(m_Device, &computeCommandPool, nullptr, &m_Frames[i].computeCommandPool), "VkEngine::InitCommands() >> failed to create compute command pool!");
 
 		//Create command buffer
-		VkCommandBufferAllocateInfo allocInfo = vkInit::CommandBufferAllocateInfo(m_Frames[i].commandPool, 1);
-		VK_CHECK(vkAllocateCommandBuffers(m_Device, &allocInfo, &m_Frames[i].commandBuffer), "VkEngine::InitCommands() >> Failed to allocate command buffers");
+		VkCommandBufferAllocateInfo allocInfo = vkInit::CommandBufferAllocateInfo(m_Frames[i].graphicsCommandPool, 1);
+		VK_CHECK(vkAllocateCommandBuffers(m_Device, &allocInfo, &m_Frames[i].graphicsCommandBuffer), "VkEngine::InitCommands() >> Failed to allocate command buffers");
 
 		VkCommandBufferAllocateInfo computeAllocInfo = vkInit::CommandBufferAllocateInfo(m_Frames[i].computeCommandPool, 1);
 		VK_CHECK(vkAllocateCommandBuffers(m_Device, &computeAllocInfo, &m_Frames[i].computeCommandBuffer), "VkEngine::InitCommands() >> Failed to allocate compute command buffers");
 
 		m_DeletionQueue.PushFunction([=]()
 			{
-				vkDestroyCommandPool(m_Device, m_Frames[i].commandPool, nullptr);
+				vkDestroyCommandPool(m_Device, m_Frames[i].graphicsCommandPool, nullptr);
 				vkDestroyCommandPool(m_Device, m_Frames[i].computeCommandPool, nullptr);
 			});
 	}
@@ -329,22 +357,25 @@ void VkEngine::InitFramebuffers()
 
 void VkEngine::InitSyncStructures()
 {
-	VkFenceCreateInfo fenceInfo = vkInit::FenceCreateInfo(VK_FENCE_CREATE_SIGNALED_BIT);
+	VkFenceCreateInfo fenceInfoSignaled = vkInit::FenceCreateInfo(VK_FENCE_CREATE_SIGNALED_BIT);
+	VkFenceCreateInfo fenceInfo = vkInit::FenceCreateInfo();
 	VkFenceCreateInfo uploadFenceInfo = vkInit::FenceCreateInfo();
 	VkSemaphoreCreateInfo semaphoreInfo = vkInit::SemaphoreCreateInfo();
 
 	for (int i = 0; i < m_FramesOverlapping; ++i)
 	{
-		VK_CHECK(vkCreateFence(m_Device, &fenceInfo, nullptr, &m_Frames[i].renderFence), "VkEngine::InitSyncStructures() >> Failed to create render fence!");
 		VK_CHECK(vkCreateFence(m_Device, &fenceInfo, nullptr, &m_Frames[i].computeFence), "VkEngine::InitSyncStructures() >> Failed to create compute fence!");
+		VK_CHECK(vkCreateFence(m_Device, &fenceInfo, nullptr, &m_Frames[i].imageTransFence), "VkEngine::InitSyncStructures() >> Failed to create compute fence!");
 
 		VK_CHECK(vkCreateSemaphore(m_Device, &semaphoreInfo, nullptr, &m_Frames[i].presentSemaphore), "VkEngine::InitSyncStructures() >> Failed to create present semaphore!");
+		VK_CHECK(vkCreateSemaphore(m_Device, &semaphoreInfo, nullptr, &m_Frames[i].imageTransSemaphore), "VkEngine::InitSyncStructures() >> Failed to create present semaphore!");
 
 		m_DeletionQueue.PushFunction([=]()
 			{
-				vkDestroyFence(m_Device, m_Frames[i].renderFence, nullptr);
 				vkDestroyFence(m_Device, m_Frames[i].computeFence, nullptr);
+				vkDestroyFence(m_Device, m_Frames[i].imageTransFence, nullptr);
 				vkDestroySemaphore(m_Device, m_Frames[i].presentSemaphore, nullptr);
+				vkDestroySemaphore(m_Device, m_Frames[i].imageTransSemaphore, nullptr);
 			});
 	}
 }
@@ -514,26 +545,6 @@ AllocatedBuffer VkEngine::CreateBuffer(size_t allocationSize, VkBufferUsageFlags
 
 	return newBuffer;
 }
-
-//Material* VkEngine::CreateMaterial(VkPipeline pipeline, VkPipelineLayout layout, const std::string& name)
-//{
-//	Material mat{};
-//	mat.pipeline = pipeline;
-//	mat.pipelineLayout = layout;
-//
-//	m_Materials[name] = mat;
-//
-//	return &m_Materials[name];
-//}
-//
-//Material* VkEngine::GetMaterial(const std::string& name)
-//{
-//	auto it = m_Materials.find(name);
-//	if (it == m_Materials.end())
-//		return nullptr;
-//
-//	return &(*it).second;
-//}
 
 FrameData& VkEngine::GetCurrentFrame()
 {

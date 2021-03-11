@@ -61,12 +61,6 @@ struct SwapChainSupportDetails
 	std::vector<VkPresentModeKHR> presentModes;
 };
 
-struct Texture
-{
-	AllocatedImage image;
-	VkImageView imageView;
-};
-
 struct GPUDimensionsData
 {
 	uint32_t dimX;
@@ -89,12 +83,12 @@ struct GPULightData
 struct FrameData
 {
 	//semaphores and fences for each frame
-	VkSemaphore presentSemaphore;
-	VkFence renderFence, computeFence;
+	VkSemaphore presentSemaphore, imageTransSemaphore;
+	VkFence computeFence, imageTransFence;
 
 	//Command pool and buffer for each frame
-	VkCommandPool commandPool;
-	VkCommandBuffer commandBuffer;
+	VkCommandPool graphicsCommandPool;
+	VkCommandBuffer graphicsCommandBuffer;
 	VkCommandPool computeCommandPool;
 	VkCommandBuffer computeCommandBuffer;
 
@@ -144,6 +138,12 @@ private:
 	bool m_IsInitialized = false;
 	int m_FrameNumber = 0;
 	unsigned int m_FramesOverlapping = 2;
+
+#ifdef NDEBUG
+	bool m_EnableValidationLayers = false;
+#else
+	bool m_EnableValidationLayers = true;
+#endif
 
 	VkExtent2D m_WindowExtent{ 1280, 720 };
 	GLFWwindow* m_pWindow = nullptr;
