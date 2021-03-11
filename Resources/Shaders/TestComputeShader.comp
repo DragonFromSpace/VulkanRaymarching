@@ -42,6 +42,7 @@ struct RayHit
     vec3 position;
     float distance;
     vec3 normal;
+    vec3 color;
 };
 
 RayHit CreateRayHit()
@@ -50,6 +51,7 @@ RayHit CreateRayHit()
     hit.position = vec3(0,0,0);
     hit.distance = INFINITY;
     hit.normal = vec3(0,0,0);
+    hit.color = vec3(0,0,0);
 
     return hit;
 }
@@ -143,9 +145,13 @@ float IntersectSDF(float distA, float distB)
 }
 
 //Add geometry together (Additive)
-float AdditiveSDF(float distA, float distB)
+vec4 AdditiveSDF(float distA, vec3 colA, float distB, vec3 colB)
 {
-	return min(distA, distB);
+	float val = min(distA, distB);
+    if(val == distA)
+        return vec4(colA, val);
+    else
+        return vec4(colB, val);
 }
 
 //Only keep non-overlapping geometry (Subtractive)
@@ -183,30 +189,31 @@ float SmoothIntersectionSDF(float d1, float d2, float k)
 ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
 */
 
-float map(vec3 samplePoint)
+vec4 map(vec3 samplePoint)
 {
     //DISTANCE FUNCTIONS
-    vec3 objectColor = vec3(1, 0, 0);
+    vec3 objectColor = vec3(0.6f, 0.2f, 0.0f);
+    vec3 floorColor = vec3(0,0,0);
 
     vec3 infRep = opRepLim(samplePoint, 6, vec3(10, 0, 10));
-    float boxDistance = BoxSDF(infRep, vec3(1.0f));
+    float sphere = SphereSDF(infRep, 1.0f);
 
     float ground = GroundPlaneSDF(samplePoint - vec3(0, -12, 0));
 
     vec3 camPos = sceneSettings.viewInverseMat[3].xyz;
-    float playerBox = BoxSDF(samplePoint - camPos - vec3(0, -1, 0), vec3(0.1f, 0.1f, 0.1f));
+    float playerBox = BoxSDF(samplePoint - camPos - vec3(0, 0.5f, 0), vec3(0.1f, 0.1f, 0.1f));
 
-    float combined = AdditiveSDF(ground, boxDistance);
-    float combined2 = AdditiveSDF(combined, playerBox);
+    vec4 combined = AdditiveSDF(ground, floorColor, sphere, objectColor);
+    vec4 combined2 = AdditiveSDF(combined.w, combined.xyz, playerBox, objectColor);
 
     return combined2;
 }
 
 vec3 EstimateNormal(vec3 samplePoint)
 {
-	vec3 norm = vec3(map(vec3(samplePoint.x + EPSILON, samplePoint.y, samplePoint.z)) - map(vec3(samplePoint.x - EPSILON, samplePoint.y, samplePoint.z)),
-						 map(vec3(samplePoint.x, samplePoint.y + EPSILON, samplePoint.z)) - map(vec3(samplePoint.x, samplePoint.y - EPSILON, samplePoint.z)),
-						 map(vec3(samplePoint.x, samplePoint.y, samplePoint.z + EPSILON)) - map(vec3(samplePoint.x, samplePoint.y, samplePoint.z - EPSILON)));
+	vec3 norm = vec3(map(vec3(samplePoint.x + EPSILON, samplePoint.y, samplePoint.z)).w - map(vec3(samplePoint.x - EPSILON, samplePoint.y, samplePoint.z)).w,
+						 map(vec3(samplePoint.x, samplePoint.y + EPSILON, samplePoint.z)).w - map(vec3(samplePoint.x, samplePoint.y - EPSILON, samplePoint.z)).w,
+						 map(vec3(samplePoint.x, samplePoint.y, samplePoint.z + EPSILON)).w - map(vec3(samplePoint.x, samplePoint.y, samplePoint.z - EPSILON)).w);
 
 	return normalize(norm);
 }
@@ -216,17 +223,18 @@ RayHit Trace(Ray ray, float start, float end)
     float depth = start;
     for(int i = 0; i < MAX_MARCHING_STEPS; ++i)
     {
-        float val = map(ray.origin + (depth * ray.direction));
-        if(val < EPSILON)
+        vec4 val = map(ray.origin + (depth * ray.direction));
+        if(val.w < EPSILON)
         {
             RayHit hit = CreateRayHit();
             hit.position = ray.origin + (ray.direction * depth);
             hit.normal = EstimateNormal(hit.position);
             hit.distance = depth;
+            hit.color = val.xyz;
             return hit;
         }
 
-        depth += val;
+        depth += val.w;
         if(depth >= end)
         {
             return CreateRayHit();
@@ -234,18 +242,6 @@ RayHit Trace(Ray ray, float start, float end)
     }
 
     return CreateRayHit();
-}
-
-vec3 ShadeRay(float tracedDistance, Ray ray, vec3 objectColor)
-{
-    if(tracedDistance > MAX_DIST - EPSILON)
-    {
-        //Return skybox color
-        return vec3(0.1f, 0.8f, 0.8f);
-    }
-
-    //Return the correct color of the pixel without computing light and shading
-    return objectColor;
 }
 
 vec3 Shade(float tracedDistance, Ray ray, vec3 objectColor)
@@ -293,26 +289,14 @@ void main()
     vec2 uv = vec2((id.xy + vec2(0.5f, 0.5f)) / vec2(width, height) * 2.0f - 1.0f );
     Ray originalRay = CreateCameraRay(uv);
 
-    //float tracedValue = Trace(ray, MIN_DIST, MAX_DIST);
-    //vec4 color = Shade(tracedValue, ray, vec3(0.4f, 0.1f, 0.5f));
-
-    vec3 OBJECTCOLOR = vec3(0.6f, 0.2f, 0.0f);
-    vec3 SPECULAR = vec3(0.6f, 0.6f, 0.6f);
-
     //8 ray bounces
+    vec3 SPECULAR = vec3(0.6f, 0.6f, 0.6f);
     vec3 colorResult = vec3(0,0,0);
     Ray ray = originalRay; //Backup the original to reflect with
     for(int i = 0; i < 8; ++i)
     {
-        if(i == 0)
-        {
-            //Apply shading on the final color
-            RayHit firstHit = Trace(originalRay, MIN_DIST, MAX_DIST);
-            OBJECTCOLOR = Shade(firstHit.distance, ray, OBJECTCOLOR);
-        }
-
         RayHit hit = Trace(ray, MIN_DIST, MAX_DIST);
-        colorResult += ray.energy * ShadeRay(hit.distance, ray, OBJECTCOLOR);
+        colorResult += ray.energy * Shade(hit.distance, ray, hit.color);
 
         if(ray.energy.x <= EPSILON || ray.energy.y <= EPSILON || ray.energy.z <= EPSILON)
         {
