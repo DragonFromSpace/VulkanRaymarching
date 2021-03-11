@@ -89,8 +89,8 @@ struct GPULightData
 struct FrameData
 {
 	//semaphores and fences for each frame
-	VkSemaphore presentSemaphore, renderSemaphore;
-	VkFence renderFence;
+	VkSemaphore presentSemaphore;
+	VkFence renderFence, computeFence;
 
 	//Command pool and buffer for each frame
 	VkCommandPool commandPool;

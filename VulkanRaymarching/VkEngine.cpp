@@ -139,9 +139,14 @@ void VkEngine::DrawCompute()
 	submitInfo.pCommandBuffers = &GetCurrentFrame().computeCommandBuffer;
 	submitInfo.signalSemaphoreCount = 0;
 	submitInfo.pSignalSemaphores = nullptr;
-	vkQueueSubmit(m_ComputeQueue, 1, &submitInfo, VK_NULL_HANDLE);
+	vkQueueSubmit(m_ComputeQueue, 1, &submitInfo, GetCurrentFrame().computeFence);
 
-	vkQueueWaitIdle(m_ComputeQueue);
+	std::cout << "WAITING" << '\n';
+	vkWaitForFences(m_Device, 1, &GetCurrentFrame().computeFence, VK_TRUE, UINT64_MAX);
+	vkResetFences(m_Device, 1, &GetCurrentFrame().computeFence);
+	std::cout << "DONE" << '\n';
+
+	vkResetCommandBuffer(GetCurrentFrame().computeCommandBuffer, 0);
 }
 
 void VkEngine::Draw()
@@ -149,6 +154,12 @@ void VkEngine::Draw()
 	//get image in swapchain
 	uint32_t imageIndex;
 	VK_CHECK(vkAcquireNextImageKHR(m_Device, m_Swapchain, UINT64_MAX, GetCurrentFrame().presentSemaphore, nullptr, &imageIndex), "VkEngine::Draw() >> Failed to acquire next image in swapchain!");
+
+	std::cout << "imageIndex: " << imageIndex << '\n';
+
+	//Transition image from undefined to src_present
+
+
 
 	//Present the image in the swapchain
 	VkPresentInfoKHR presentInfo = vkInit::PresentInfoKHR();
@@ -325,14 +336,14 @@ void VkEngine::InitSyncStructures()
 	for (int i = 0; i < m_FramesOverlapping; ++i)
 	{
 		VK_CHECK(vkCreateFence(m_Device, &fenceInfo, nullptr, &m_Frames[i].renderFence), "VkEngine::InitSyncStructures() >> Failed to create render fence!");
+		VK_CHECK(vkCreateFence(m_Device, &fenceInfo, nullptr, &m_Frames[i].computeFence), "VkEngine::InitSyncStructures() >> Failed to create compute fence!");
 
-		VK_CHECK(vkCreateSemaphore(m_Device, &semaphoreInfo, nullptr, &m_Frames[i].renderSemaphore), "VkEngine::InitSyncStructures() >> Failed to create render semaphore!");
 		VK_CHECK(vkCreateSemaphore(m_Device, &semaphoreInfo, nullptr, &m_Frames[i].presentSemaphore), "VkEngine::InitSyncStructures() >> Failed to create present semaphore!");
 
 		m_DeletionQueue.PushFunction([=]()
 			{
 				vkDestroyFence(m_Device, m_Frames[i].renderFence, nullptr);
-				vkDestroySemaphore(m_Device, m_Frames[i].renderSemaphore, nullptr);
+				vkDestroyFence(m_Device, m_Frames[i].computeFence, nullptr);
 				vkDestroySemaphore(m_Device, m_Frames[i].presentSemaphore, nullptr);
 			});
 	}
