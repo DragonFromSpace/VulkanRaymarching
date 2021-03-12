@@ -16,6 +16,7 @@ layout(set = 0, binding = 3) buffer SceneSettings
     mat4 viewMat;
     mat4 viewInverseMat;
     mat4 inverseProjMat;
+    float time;
 }sceneSettings;
 
 layout(set = 0, binding = 4) buffer LightSettings
@@ -44,6 +45,7 @@ struct RayHit
     float distance;
     vec3 normal;
     vec3 color;
+    vec3 specular;
 };
 
 RayHit CreateRayHit()
@@ -53,6 +55,7 @@ RayHit CreateRayHit()
     hit.distance = INFINITY;
     hit.normal = vec3(0,0,0);
     hit.color = vec3(0,0,0);
+    hit.specular = vec3(1,1,1);
 
     return hit;
 }
@@ -77,6 +80,22 @@ Ray CreateCameraRay(vec2 uv)
 
     return CreateRay(origin, direction);
 };
+
+struct SceneObject
+{
+    float value;
+    vec3 color;
+    vec3 specular;
+};
+
+SceneObject CreateSceneObject(float val, vec3 col, vec3 spec)
+{
+    SceneObject newObject;
+    newObject.value = val;
+    newObject.color = col;
+    newObject.specular = spec;
+    return newObject;
+}
 
 /*
 ------------ SDF FUNCTIONS ------------------------
@@ -140,81 +159,158 @@ vec3 opRepLim(vec3 p, float c, vec3 l)
 ///////
 
 //Only keep overlapping geometry
-float IntersectSDF(float distA, float distB)
+SceneObject IntersectSDF(SceneObject d1, SceneObject d2)
 {
-	return max(distA, distB);
+	float val = max(d1.value, d2.value);
+
+    vec3 col;
+    val == d1.value ? col = d1.color : col = d2.color;
+
+    vec3 spec;
+    val == d1.value ? spec = d1.specular : spec = d2.specular;
+
+    return CreateSceneObject(val, col, spec);
 }
 
 //Add geometry together (Additive)
-vec4 AdditiveSDF(float distA, vec3 colA, float distB, vec3 colB)
+SceneObject AdditiveSDF(SceneObject d1, SceneObject d2)
 {
-	float val = min(distA, distB);
-    if(val == distA)
-        return vec4(colA, val);
-    else
-        return vec4(colB, val);
+	float val = min(d1.value, d2.value);
+
+    vec3 col;
+    val == d1.value ? col = d1.color : col = d2.color;
+
+    vec3 spec;
+    val == d1.value ? spec = d1.specular : spec = d2.specular;
+
+    return CreateSceneObject(val, col, spec);
 }
 
 //Only keep non-overlapping geometry (Subtractive)
-float SubtractiveSDF(float distA, float distB)
+SceneObject SubtractiveSDF(SceneObject d1, SceneObject d2)
 {
-	return max(distA, -distB);
+	float val = max(d1.value, -d2.value);
+
+    vec3 col;
+    val == d1.value ? col = d1.color : col = d2.color;
+
+    vec3 spec;
+    val == d1.value ? spec = d1.specular : spec = d2.specular;
+
+    return CreateSceneObject(val, col, spec);
 }
 
-// float mix(float x, float y, float a)
-// {
-// 	return (x * (1 - a)) + (y * a);
-// }
-
 //Smooth addition
-float SmoothAdditiveSDF(float d1, float d2, float k) 
+SceneObject SmoothAdditiveSDF(SceneObject d1, SceneObject d2, float k) 
 {
-    float h = clamp(0.5 + 0.5 * (d2 - d1) / k, 0.0, 1.0);
-    return mix(d2, d1, h) - k * h * (1.0 - h);
+    float h = clamp(0.5 + 0.5 * (d2.value - d1.value) / k, 0.0, 1.0);
+    
+    float val = mix(d2.value, d1.value, h) - k * h * (1.0 - h);
+    vec3 col = mix(d2.color, d1.color, h);
+    vec3 spec = mix(d2.specular, d1.specular, h);
+
+    return CreateSceneObject(val, col, spec);
 }
 
 //Smooth subtraction
-float SmoothSubtractiveSDF(float d1, float d2, float k) 
+SceneObject SmoothSubtractiveSDF(SceneObject d1, SceneObject d2, float k) 
 {
-    float h = clamp(0.5 - 0.5 * (d2 + d1) / k, 0.0, 1.0);
-    return mix(d2, -d1, h) + k * h * (1.0 - h);
+    float h = clamp(0.5 - 0.5 * (d2.value + d1.value) / k, 0.0, 1.0);
+
+    float val = mix(d2.value, -d1.value, h) + k * h * (1.0 - h);
+    vec3 col = mix(d2.color, d1.color, h);
+    vec3 spec = mix(d2.specular, d1.specular, h);
+
+    return CreateSceneObject(val, col, spec);
 }
 
 //Smooth intersection
-float SmoothIntersectionSDF(float d1, float d2, float k) 
+SceneObject SmoothIntersectionSDF(SceneObject d1, SceneObject d2, float k) 
 {
-    float h = clamp(0.5 - 0.5 * (d2 - d1) / k, 0.0, 1.0);
-    return mix(d2, d1, h) + k * h * (1.0 - h);
+    float h = clamp(0.5 - 0.5 * (d2.value - d1.value) / k, 0.0, 1.0);
+
+    float val = mix(d2.value, d1.value, h) + k * h * (1.0 - h);
+    vec3 col = mix(d2.color, d1.color, h);
+    vec3 spec = mix(d2.specular, d1.specular, h);
+
+    return CreateSceneObject(val, col, spec);
 }
 /*
 ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
 */
 
-vec4 map(vec3 samplePoint)
+SceneObject MetaBalls(vec3 samplePoint)
+{
+    SceneObject ball1;
+    SceneObject ball2;
+    SceneObject ball3;
+
+    float s = sin(sceneSettings.time) / 1.5f;
+    float c = cos(sceneSettings.time) / 1.5f;
+
+    ball1.value = SphereSDF(samplePoint - vec3(s, c, 0), 1.0f);
+    ball1.color = vec3(0);
+    ball1.specular = vec3(1.0f, 0.74f, 0.34f);
+
+    ball2.value = SphereSDF(samplePoint- vec3(c, 0, s), 1.0f);
+    ball2.color = vec3(0);
+    ball2.specular = vec3(1.0f, 0.63f, 0.53f);
+
+    ball3.value = SphereSDF(samplePoint- vec3(0, c, s), 1.0f);
+    ball3.color = vec3(0);
+    ball3.specular = vec3(0.8f, 0.8f, 0.8f);
+
+    SceneObject pass1 = SmoothAdditiveSDF(ball1, ball2, 0.5f);
+    SceneObject pass2 = SmoothAdditiveSDF(pass1, ball3, 0.5f);
+
+    return pass2;
+}
+
+SceneObject map(vec3 samplePoint)
 {
     //DISTANCE FUNCTIONS
-    vec3 objectColor = vec3(0,0,0);
-    vec3 redObject = vec3(1,1,1);
-    vec3 floorColor = vec3(0,0,0);
+    vec3 metalColor = vec3(0, 0, 0);
+    vec3 whiteColor = vec3(1.0f, 1.0f, 1.0f);
+    vec3 floorColor = vec3(0.1f, 0.1f, 0.1f);
 
+    vec3 goldSpecular = vec3(1.0f, 0.71f, 0.29f);
+
+    SceneObject goldSphere;
+    SceneObject whiteSphere;
+    SceneObject ground;
+
+    //repetitive spheres (gold)
     vec3 infRep = opRepLim(samplePoint, 6, vec3(10, 0, 10));
-    float sphere = SphereSDF(infRep, 1.0f);
+    goldSphere.value = SphereSDF(infRep - vec3(0, sin(sceneSettings.time) - 3.0f, 0), 1.0f);
+    goldSphere.color = metalColor;
+    goldSphere.specular = goldSpecular;
 
-    float ground = GroundPlaneSDF(samplePoint - vec3(0, -12, 0));
+    //Single white sphere
+    whiteSphere.value = SphereSDF(samplePoint, 2.0f);
+    whiteSphere.color = whiteColor;
+    whiteSphere.specular = vec3(1.0f, 1.0f, 1.0f);
 
-    float cSphere = SphereSDF(samplePoint, 2.0f);
+    //Ground
+    ground.value = GroundPlaneSDF(samplePoint - vec3(0, -3.0f, 0));
+    ground.color = floorColor;
+    ground.specular = vec3(0.1f, 0.1f, 0.1f);
 
-    vec4 combined = AdditiveSDF(ground, floorColor, sphere, objectColor);
-    vec4 combined2 = AdditiveSDF(combined.w, combined.xyz, cSphere, redObject);
+    //Metaballs
+    SceneObject metaBalls = MetaBalls(samplePoint - vec3(-5, 1, -5));
 
-    return combined2;
+    //Combine everything
+    SceneObject combined = SmoothAdditiveSDF(goldSphere, whiteSphere, 0.5f);
+    SceneObject combined2 = SmoothAdditiveSDF(combined, ground, 0.5f);
+    SceneObject combined3 = AdditiveSDF(combined2, metaBalls);
+
+    return combined3;
 }
 
 vec3 EstimateNormal(vec3 samplePoint)
 {
-	vec3 norm = vec3(map(vec3(samplePoint.x + EPSILON, samplePoint.y, samplePoint.z)).w - map(vec3(samplePoint.x - EPSILON, samplePoint.y, samplePoint.z)).w,
-						 map(vec3(samplePoint.x, samplePoint.y + EPSILON, samplePoint.z)).w - map(vec3(samplePoint.x, samplePoint.y - EPSILON, samplePoint.z)).w,
-						 map(vec3(samplePoint.x, samplePoint.y, samplePoint.z + EPSILON)).w - map(vec3(samplePoint.x, samplePoint.y, samplePoint.z - EPSILON)).w);
+	vec3 norm = vec3(map(vec3(samplePoint.x + EPSILON, samplePoint.y, samplePoint.z)).value - map(vec3(samplePoint.x - EPSILON, samplePoint.y, samplePoint.z)).value,
+						 map(vec3(samplePoint.x, samplePoint.y + EPSILON, samplePoint.z)).value - map(vec3(samplePoint.x, samplePoint.y - EPSILON, samplePoint.z)).value,
+						 map(vec3(samplePoint.x, samplePoint.y, samplePoint.z + EPSILON)).value - map(vec3(samplePoint.x, samplePoint.y, samplePoint.z - EPSILON)).value);
 
 	return normalize(norm);
 }
@@ -224,18 +320,19 @@ RayHit Trace(Ray ray, float start, float end)
     float depth = start;
     for(int i = 0; i < MAX_MARCHING_STEPS; ++i)
     {
-        vec4 val = map(ray.origin + (depth * ray.direction));
-        if(val.w < EPSILON)
+        SceneObject val = map(ray.origin + (depth * ray.direction));
+        if(val.value < EPSILON)
         {
             RayHit hit = CreateRayHit();
             hit.position = ray.origin + (ray.direction * depth);
             hit.normal = EstimateNormal(hit.position);
             hit.distance = depth;
-            hit.color = val.xyz;
+            hit.color = val.color;
+            hit.specular = val.specular;
             return hit;
         }
 
-        depth += val.w;
+        depth += val.value;
         if(depth >= end)
         {
             return CreateRayHit();
@@ -245,10 +342,12 @@ RayHit Trace(Ray ray, float start, float end)
     return CreateRayHit();
 }
 
-vec3 Shade(float tracedDistance, Ray ray, vec3 objectColor)
+vec3 Shade(float tracedDistance, inout Ray ray, vec3 objectColor)
 {
     if(tracedDistance > MAX_DIST - EPSILON)
     {
+        ray.energy = vec3(0.0f);
+
         // Sample the skybox and write it
         float phi = atan(-ray.direction.z, ray.direction.x) / -PI * 0.5f;
         float theta = acos(-ray.direction.y) / -PI;
@@ -262,19 +361,20 @@ vec3 Shade(float tracedDistance, Ray ray, vec3 objectColor)
 
     //Ambient
     float ambientStrength = 0.3f;
-    vec3 ambient = ambientStrength * lightSettings.lightCol.xyz;
+    vec3 ambient = ambientStrength * (lightSettings.lightCol.xyz * lightSettings.lightCol.w);
 
     //Diffuse
     float diffuseStrength = max(dot(normal, -lightSettings.lightDir.xyz), 0.0f);
-    vec3 diffuse = diffuseStrength * lightSettings.lightCol.xyz;
+    vec3 diffuse = diffuseStrength * (lightSettings.lightCol.xyz * lightSettings.lightCol.w);
 
     //Blinn-phong
     int shininess = 64;
     vec3 lightDir = normalize(lightSettings.lightDir.xyz);
-    vec3 camForward = vec3(sceneSettings.viewMat[0][2], sceneSettings.viewMat[1][2], sceneSettings.viewMat[2][2]);
+    //vec3 camForward = vec3(sceneSettings.viewMat[0][2], sceneSettings.viewMat[1][2], sceneSettings.viewMat[2][2]);
+    vec3 camForward = ray.direction;
     vec3 halfVec = normalize(-lightDir + camForward);
     float spec = pow(max(dot(halfVec, normal), 0.0f), shininess);
-    vec3 specular = spec * lightSettings.lightCol.xyz;
+    vec3 specular = spec * (lightSettings.lightCol.xyz * lightSettings.lightCol.w);
     vec3 resultCol = (ambient + diffuse + specular) * objectColor;
 
     return resultCol;
@@ -305,13 +405,13 @@ void main()
 
         if(ray.energy.x <= EPSILON || ray.energy.y <= EPSILON || ray.energy.z <= EPSILON)
         {
-            break;
+           break;
         }
 
         //Reflect ray
         ray.origin = hit.position + (hit.normal * 0.1f);
         ray.direction = reflect(ray.direction, hit.normal);
-        ray.energy *= SPECULAR;
+        ray.energy *= hit.specular;
     }
 
     ivec2 imageUV = ivec2(int(gl_GlobalInvocationID.x), int(gl_GlobalInvocationID.y));

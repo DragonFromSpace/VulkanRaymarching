@@ -93,20 +93,21 @@ void VkEngine::DrawCompute()
 	glm::mat4 view = _Camera.GetViewMatrix();
 	glm::mat4 proj = glm::perspective(glm::radians(70.0f), (float)m_WindowExtent.width / (float)m_WindowExtent.height, 0.1f, 200.0f);
 
-	GPUSceneData camData;
-	camData.ViewMat = view;
-	camData.ViewInverseMat = glm::inverse(view);
-	camData.ProjInverseMat = glm::inverse(proj);
+	GPUSceneData sceneData;
+	sceneData.ViewMat = view;
+	sceneData.ViewInverseMat = glm::inverse(view);
+	sceneData.ProjInverseMat = glm::inverse(proj);
+	sceneData.time = glfwGetTime();
 
 	void* data;
 	vmaMapMemory(m_Allocator, GetCurrentFrame().sceneBuffer.allocation, &data);
-	memcpy(data, &camData, sizeof(GPUSceneData));
+	memcpy(data, &sceneData, sizeof(GPUSceneData));
 	vmaUnmapMemory(m_Allocator, GetCurrentFrame().sceneBuffer.allocation);
 
 	//set light data
 	GPULightData lightData;
 	lightData.lightColor = glm::vec4(1.0f, 1.0f, 0.95f, 1.0f);
-	lightData.lightDirection = glm::normalize(glm::vec4(-1.0f, -1.0f, 1.0f, 1.0f));
+	lightData.lightDirection = glm::normalize(glm::vec4(-0.9f, -1.0f, 0.0f, 1.0f));
 
 	vmaMapMemory(m_Allocator, GetCurrentFrame().lightBuffer.allocation, &data);
 	memcpy(data, &lightData, sizeof(GPULightData));
@@ -451,7 +452,7 @@ void VkEngine::InitDescriptors()
 	{
 		//Create buffers for the dimensions and the output
 		m_Frames[i].dimensionsBuffer = CreateBuffer(sizeof(uint32_t) * 2, VK_BUFFER_USAGE_STORAGE_BUFFER_BIT, VMA_MEMORY_USAGE_CPU_TO_GPU);
-		m_Frames[i].sceneBuffer = CreateBuffer(sizeof(glm::mat4) * 3, VK_BUFFER_USAGE_STORAGE_BUFFER_BIT, VMA_MEMORY_USAGE_CPU_TO_GPU);
+		m_Frames[i].sceneBuffer = CreateBuffer(sizeof(glm::mat4) * 3 + sizeof(float), VK_BUFFER_USAGE_STORAGE_BUFFER_BIT, VMA_MEMORY_USAGE_CPU_TO_GPU);
 
 		//const size_t lightBufferPaddedSize = m_FramesOverlapping * PadUniformBufferSize(sizeof(GPULightData));
 		m_Frames[i].lightBuffer = CreateBuffer(sizeof(glm::vec4) * 2, VK_BUFFER_USAGE_STORAGE_BUFFER_BIT, VMA_MEMORY_USAGE_CPU_TO_GPU);
@@ -539,6 +540,8 @@ void VkEngine::LoadTextures()
 	Texture skybox;
 
 	bool b = VkUtils::LoadFromFile(*this, "../Resources/Textures/TexturesCom_HDRPanorama040_harbor_street_1K_hdri_sphere_tone.jpg", skybox.image);
+	//bool b = VkUtils::LoadFromFile(*this, "../Resources/Textures/SunsetHDR_Converted.jpg", skybox.image);
+	//bool b = VkUtils::LoadFromFile(*this, "../Resources/Textures/SnowyHDR_Converted.jpg", skybox.image);
 	if (!b)
 	{
 		throw std::runtime_error("VkEngine::LoadTextures() >> Failed to load skybox texture!");

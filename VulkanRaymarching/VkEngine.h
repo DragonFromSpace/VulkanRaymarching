@@ -73,6 +73,7 @@ struct GPUSceneData
 	glm::mat4 ViewMat;
 	glm::mat4 ViewInverseMat;
 	glm::mat4 ProjInverseMat;
+	float time;
 };
 
 struct GPULightData
