@@ -3,21 +3,22 @@
 layout(local_size_x = 32, local_size_y = 32) in;
 
 layout(rgba32f, set = 0, binding = 0) uniform image2D outputImage;
+layout(set = 0, binding = 1) uniform sampler2D skyboxImage;
 
-layout(set = 0, binding = 1) buffer Dimensions
+layout(set = 0, binding = 2) buffer Dimensions
 {
     uint dimX;
     uint dimY;
 } dimensions;
 
-layout(set = 0, binding = 2) buffer SceneSettings
+layout(set = 0, binding = 3) buffer SceneSettings
 {
     mat4 viewMat;
     mat4 viewInverseMat;
     mat4 inverseProjMat;
 }sceneSettings;
 
-layout(set = 0, binding = 3) buffer LightSettings
+layout(set = 0, binding = 4) buffer LightSettings
 {
     vec4 lightDir;
     vec4 lightCol;
@@ -192,7 +193,8 @@ float SmoothIntersectionSDF(float d1, float d2, float k)
 vec4 map(vec3 samplePoint)
 {
     //DISTANCE FUNCTIONS
-    vec3 objectColor = vec3(0.6f, 0.2f, 0.0f);
+    vec3 objectColor = vec3(0,0,0);
+    vec3 redObject = vec3(1,1,1);
     vec3 floorColor = vec3(0,0,0);
 
     vec3 infRep = opRepLim(samplePoint, 6, vec3(10, 0, 10));
@@ -200,11 +202,10 @@ vec4 map(vec3 samplePoint)
 
     float ground = GroundPlaneSDF(samplePoint - vec3(0, -12, 0));
 
-    vec3 camPos = sceneSettings.viewInverseMat[3].xyz;
-    float playerBox = BoxSDF(samplePoint - camPos - vec3(0, 0.5f, 0), vec3(0.1f, 0.1f, 0.1f));
+    float cSphere = SphereSDF(samplePoint, 2.0f);
 
     vec4 combined = AdditiveSDF(ground, floorColor, sphere, objectColor);
-    vec4 combined2 = AdditiveSDF(combined.w, combined.xyz, playerBox, objectColor);
+    vec4 combined2 = AdditiveSDF(combined.w, combined.xyz, cSphere, redObject);
 
     return combined2;
 }
@@ -248,8 +249,12 @@ vec3 Shade(float tracedDistance, Ray ray, vec3 objectColor)
 {
     if(tracedDistance > MAX_DIST - EPSILON)
     {
-        //Return skybox color
-        return vec3(0.1f, 0.8f, 0.8f);
+        // Sample the skybox and write it
+        float phi = atan(-ray.direction.z, ray.direction.x) / -PI * 0.5f;
+        float theta = acos(-ray.direction.y) / -PI;
+
+        vec3 skyboxCol = texture(skyboxImage, vec2(phi, theta)).xyz;
+        return skyboxCol;
     }
 
     vec3 collisionPoint = ray.origin + (ray.direction * tracedDistance);
@@ -291,12 +296,12 @@ void main()
 
     //8 ray bounces
     vec3 SPECULAR = vec3(0.6f, 0.6f, 0.6f);
-    vec3 colorResult = vec3(0,0,0);
+    vec3 finalColor = vec3(0,0,0);
     Ray ray = originalRay; //Backup the original to reflect with
     for(int i = 0; i < 8; ++i)
     {
         RayHit hit = Trace(ray, MIN_DIST, MAX_DIST);
-        colorResult += ray.energy * Shade(hit.distance, ray, hit.color);
+        finalColor += ray.energy * Shade(hit.distance, ray, hit.color);
 
         if(ray.energy.x <= EPSILON || ray.energy.y <= EPSILON || ray.energy.z <= EPSILON)
         {
@@ -310,5 +315,5 @@ void main()
     }
 
     ivec2 imageUV = ivec2(int(gl_GlobalInvocationID.x), int(gl_GlobalInvocationID.y));
-    imageStore(outputImage, imageUV, vec4(colorResult, 1.0f));
+    imageStore(outputImage, imageUV, vec4(finalColor, 1.0f));
 }

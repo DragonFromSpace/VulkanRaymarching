@@ -43,6 +43,7 @@ void VkEngine::Init()
 	InitFramebuffers();
 	InitCommands();
 	InitSyncStructures();
+	LoadTextures();
 	InitDescriptors();
 	InitPipelines();
 
@@ -105,7 +106,7 @@ void VkEngine::DrawCompute()
 	//set light data
 	GPULightData lightData;
 	lightData.lightColor = glm::vec4(1.0f, 1.0f, 0.95f, 1.0f);
-	lightData.lightDirection = glm::normalize(glm::vec4(1.0f, -1.0f, 1.0f, 1.0f));
+	lightData.lightDirection = glm::normalize(glm::vec4(-1.0f, -1.0f, 1.0f, 1.0f));
 
 	vmaMapMemory(m_Allocator, GetCurrentFrame().lightBuffer.allocation, &data);
 	memcpy(data, &lightData, sizeof(GPULightData));
@@ -302,6 +303,14 @@ void VkEngine::InitCommands()
 				vkDestroyCommandPool(m_Device, m_Frames[i].computeCommandPool, nullptr);
 			});
 	}
+
+	//create command pool for the immediate submit
+	VkCommandPoolCreateInfo uploadCommandPool = vkInit::CommandPoolCreateInfo(m_GraphicsQueueFamily);
+	VK_CHECK(vkCreateCommandPool(m_Device, &uploadCommandPool, nullptr, &m_UploadContext.commandPool), "VkEngine::InitCommands() >> Failed to create upload command pool!");
+	m_DeletionQueue.PushFunction([=]()
+		{
+			vkDestroyCommandPool(m_Device, m_UploadContext.commandPool, nullptr);
+		});
 }
 
 void VkEngine::InitDefaultRenderPass()
@@ -359,7 +368,6 @@ void VkEngine::InitSyncStructures()
 {
 	VkFenceCreateInfo fenceInfoSignaled = vkInit::FenceCreateInfo(VK_FENCE_CREATE_SIGNALED_BIT);
 	VkFenceCreateInfo fenceInfo = vkInit::FenceCreateInfo();
-	VkFenceCreateInfo uploadFenceInfo = vkInit::FenceCreateInfo();
 	VkSemaphoreCreateInfo semaphoreInfo = vkInit::SemaphoreCreateInfo();
 
 	for (int i = 0; i < m_FramesOverlapping; ++i)
@@ -378,6 +386,14 @@ void VkEngine::InitSyncStructures()
 				vkDestroySemaphore(m_Device, m_Frames[i].imageTransSemaphore, nullptr);
 			});
 	}
+
+	//create fence for the immediate submit
+	VkFenceCreateInfo uploadFenceInfo = vkInit::FenceCreateInfo();
+	VK_CHECK(vkCreateFence(m_Device, &uploadFenceInfo, nullptr, &m_UploadContext.uploadFence), "VkEngine::InitSyncStructures() >> Failed to create upload fence!");
+	m_DeletionQueue.PushFunction([=]()
+		{
+			vkDestroyFence(m_Device, m_UploadContext.uploadFence, nullptr);
+		});
 }
 
 void VkEngine::InitDescriptors()
@@ -386,7 +402,8 @@ void VkEngine::InitDescriptors()
 	std::vector<VkDescriptorPoolSize> sizes =
 	{
 		{VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 10},
-		{VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, 10}
+		{VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, 10},
+		{VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 10}
 	};
 
 	VkDescriptorPoolCreateInfo poolInfo{};
@@ -401,22 +418,32 @@ void VkEngine::InitDescriptors()
 
 	//Create descriptor set layout
 	VkDescriptorSetLayoutBinding outputImageBinding = vkInit::DescriptorSetLayoutBinding(VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, VK_SHADER_STAGE_COMPUTE_BIT, 0);
-	VkDescriptorSetLayoutBinding dimensionsBinding = vkInit::DescriptorSetLayoutBinding(VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, VK_SHADER_STAGE_COMPUTE_BIT, 1);
-	VkDescriptorSetLayoutBinding sceneDataBinding = vkInit::DescriptorSetLayoutBinding(VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, VK_SHADER_STAGE_COMPUTE_BIT, 2);
-	VkDescriptorSetLayoutBinding lightDataBinding = vkInit::DescriptorSetLayoutBinding(VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, VK_SHADER_STAGE_COMPUTE_BIT, 3);
-	VkDescriptorSetLayoutBinding layoutBindings[] = { outputImageBinding, dimensionsBinding, sceneDataBinding, lightDataBinding };
+	VkDescriptorSetLayoutBinding skyboxImageBinding = vkInit::DescriptorSetLayoutBinding(VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, VK_SHADER_STAGE_COMPUTE_BIT, 1);
+	VkDescriptorSetLayoutBinding dimensionsBinding = vkInit::DescriptorSetLayoutBinding(VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, VK_SHADER_STAGE_COMPUTE_BIT, 2);
+	VkDescriptorSetLayoutBinding sceneDataBinding = vkInit::DescriptorSetLayoutBinding(VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, VK_SHADER_STAGE_COMPUTE_BIT, 3);
+	VkDescriptorSetLayoutBinding lightDataBinding = vkInit::DescriptorSetLayoutBinding(VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, VK_SHADER_STAGE_COMPUTE_BIT, 4);
+	VkDescriptorSetLayoutBinding layoutBindings[] = { outputImageBinding, skyboxImageBinding, dimensionsBinding, sceneDataBinding, lightDataBinding };
 
 	//Create descriptor set layout for the storage buffer
 	VkDescriptorSetLayoutCreateInfo setInfo{};
 	setInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO;
 	setInfo.flags = 0;
-	setInfo.bindingCount = 4;
+	setInfo.bindingCount = 5;
 	setInfo.pBindings = layoutBindings;
 	VK_CHECK(vkCreateDescriptorSetLayout(m_Device, &setInfo, nullptr, &m_ComputeDescriptorSetLayout), "VkEngine::InitDescriptors() >> Failed to create descriptor set layout!");
 
 	m_DeletionQueue.PushFunction([=]()
 		{
 			vkDestroyDescriptorSetLayout(m_Device, m_ComputeDescriptorSetLayout, nullptr);
+		});
+
+	//Create sampler for the textures
+	VkSamplerCreateInfo samplerInfo = vkInit::SamplerCreateInfo(VK_FILTER_LINEAR);
+	VkSampler blockySampler;
+	vkCreateSampler(m_Device, &samplerInfo, nullptr, &blockySampler);
+	m_DeletionQueue.PushFunction([=]()
+		{
+			vkDestroySampler(m_Device, blockySampler, nullptr);
 		});
 
 	//Create buffer for each frame
@@ -450,6 +477,11 @@ void VkEngine::InitDescriptors()
 		outputImageInfo.imageView = m_SwapchainImageViews[i];
 		outputImageInfo.sampler = VK_NULL_HANDLE;
 
+		VkDescriptorImageInfo skyboxImageInfo{};
+		skyboxImageInfo.sampler = blockySampler;
+		skyboxImageInfo.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+		skyboxImageInfo.imageView = m_SkyBoxTexture.imageView;
+
 		VkDescriptorBufferInfo dimensionsBufferInfo{};
 		dimensionsBufferInfo.buffer = m_Frames[i].dimensionsBuffer.buffer;
 		dimensionsBufferInfo.offset = 0;
@@ -465,12 +497,14 @@ void VkEngine::InitDescriptors()
 		lightBufferInfo.offset = 0; //Use offset of the padded size
 		lightBufferInfo.range = sizeof(GPULightData);
 
+		//Write texture to the descriptor set
 		VkWriteDescriptorSet imageOutputSetWrite = vkInit::WriteDescriptorSetImage(VkDescriptorType::VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, m_Frames[i].computeDescriptorSet, &outputImageInfo, 0);
-		VkWriteDescriptorSet dimensionsSetWrite = vkInit::WriteDescriptorSetBuffer(VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, m_Frames[i].computeDescriptorSet, &dimensionsBufferInfo, 1);
-		VkWriteDescriptorSet sceneSetWrite = vkInit::WriteDescriptorSetBuffer(VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, m_Frames[i].computeDescriptorSet, &sceneBufferInfo, 2);
-		VkWriteDescriptorSet lightSetWrite = vkInit::WriteDescriptorSetBuffer(VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, m_Frames[i].computeDescriptorSet, &lightBufferInfo, 3);
-		VkWriteDescriptorSet writeSets[] = { imageOutputSetWrite, dimensionsSetWrite, sceneSetWrite, lightSetWrite };
-		vkUpdateDescriptorSets(m_Device, 4, writeSets, 0, nullptr);
+		VkWriteDescriptorSet skyboxTexture = vkInit::WriteDescriptorSetImage(VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, m_Frames[i].computeDescriptorSet, &skyboxImageInfo, 1);
+		VkWriteDescriptorSet dimensionsSetWrite = vkInit::WriteDescriptorSetBuffer(VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, m_Frames[i].computeDescriptorSet, &dimensionsBufferInfo, 2);
+		VkWriteDescriptorSet sceneSetWrite = vkInit::WriteDescriptorSetBuffer(VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, m_Frames[i].computeDescriptorSet, &sceneBufferInfo, 3);
+		VkWriteDescriptorSet lightSetWrite = vkInit::WriteDescriptorSetBuffer(VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, m_Frames[i].computeDescriptorSet, &lightBufferInfo, 4);
+		VkWriteDescriptorSet writeSets[] = { imageOutputSetWrite, skyboxTexture, dimensionsSetWrite, sceneSetWrite, lightSetWrite };
+		vkUpdateDescriptorSets(m_Device, 5, writeSets, 0, nullptr);
 	}
 }
 
@@ -500,6 +534,27 @@ void VkEngine::InitPipelines()
 		});
 }
 
+void VkEngine::LoadTextures()
+{
+	Texture skybox;
+
+	bool b = VkUtils::LoadFromFile(*this, "../Resources/Textures/TexturesCom_HDRPanorama040_harbor_street_1K_hdri_sphere_tone.jpg", skybox.image);
+	if (!b)
+	{
+		throw std::runtime_error("VkEngine::LoadTextures() >> Failed to load skybox texture!");
+	}
+
+	VkImageViewCreateInfo imageInfo = vkInit::ImageViewCreateInfo(VK_FORMAT_R8G8B8A8_SRGB, skybox.image.image, VK_IMAGE_ASPECT_COLOR_BIT);
+	VK_CHECK(vkCreateImageView(m_Device, &imageInfo, nullptr, &skybox.imageView), "VkEngine::LoadTextures() >> Failed to create Image view!");
+
+	m_DeletionQueue.PushFunction([=]()
+		{
+			vkDestroyImageView(m_Device, skybox.imageView, nullptr);
+		});
+
+	m_SkyBoxTexture = skybox;
+}
+
 void VkEngine::Update()
 {
 	//Camera movement
@@ -527,6 +582,33 @@ void VkEngine::Update()
 	{
 		_Camera.ProcessKeyboard(Camera_Movement::DOWN);
 	}
+}
+
+void VkEngine::ImmediateSubmit(std::function<void(VkCommandBuffer)>&& function)
+{
+	//allocate command buffer
+	VkCommandBufferAllocateInfo cmdBufferAllocInfo = vkInit::CommandBufferAllocateInfo(m_UploadContext.commandPool, 1);
+
+	VkCommandBuffer cmdBuffer;
+	VK_CHECK(vkAllocateCommandBuffers(m_Device, &cmdBufferAllocInfo, &cmdBuffer), "VkEngine::ImmediateSubmit() >> Failed to allocate command buffer!");
+
+	VkCommandBufferBeginInfo cmdBufferBeginInfo = vkInit::CommandBufferBeginInfo(VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT);
+	VK_CHECK(vkBeginCommandBuffer(cmdBuffer, &cmdBufferBeginInfo), "VkEngine::ImmediateSubmit() >> Failed to begin command buffer!");
+
+	//execute function
+	function(cmdBuffer);
+
+	VK_CHECK(vkEndCommandBuffer(cmdBuffer), "VkEngine::ImmediateSubmit() >> Failed to end command buffer!");
+
+	//Submit queue and wait for the fence to be done
+	VkSubmitInfo submitInfo = vkInit::SubmitInfo(&cmdBuffer);
+	VK_CHECK(vkQueueSubmit(m_GraphicsQueue, 1, &submitInfo, m_UploadContext.uploadFence), "VkEngine::ImmediateSubmit() >> Failed to submit queue!");
+
+	vkWaitForFences(m_Device, 1, &m_UploadContext.uploadFence, VK_TRUE, UINT64_MAX);
+	vkResetFences(m_Device, 1, &m_UploadContext.uploadFence);
+
+	//Clear command pool and command buffers with it
+	vkResetCommandPool(m_Device, m_UploadContext.commandPool, 0);
 }
 
 AllocatedBuffer VkEngine::CreateBuffer(size_t allocationSize, VkBufferUsageFlags usage, VmaMemoryUsage memoryUsage)

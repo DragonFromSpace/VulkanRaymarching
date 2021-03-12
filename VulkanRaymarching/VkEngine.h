@@ -4,6 +4,7 @@
 #include <unordered_map>
 
 #include "Camera.h"
+#include "Texture.h"
 
 #define VK_CHECK(x, msg) if(x != VK_SUCCESS) throw std::runtime_error(msg);
 
@@ -80,6 +81,12 @@ struct GPULightData
 	glm::vec4 lightColor;
 };
 
+struct Texture
+{
+	AllocatedImage image;
+	VkImageView imageView;
+};
+
 struct FrameData
 {
 	//semaphores and fences for each frame
@@ -99,6 +106,13 @@ struct FrameData
 	VkDescriptorSet computeDescriptorSet;
 };
 
+//Data for the immediate submit
+struct UploadContext
+{
+	VkFence uploadFence;
+	VkCommandPool commandPool;
+};
+
 static Camera _Camera{glm::vec3(0,0,10)};
 static glm::vec2 _PrevMousePos;
 
@@ -110,6 +124,9 @@ public:
 	void Run();
 	void DrawCompute();
 	void Draw();
+
+	//Will push commands immediatly to the graphics queue (mainly used to store textures on the gpu once in the initialization)
+	void ImmediateSubmit(std::function<void(VkCommandBuffer)>&& function);
 
 	AllocatedBuffer CreateBuffer(size_t allocationSize, VkBufferUsageFlags usage, VmaMemoryUsage memoryUsage);
 
@@ -128,6 +145,7 @@ private:
 	void InitSyncStructures();
 	void InitDescriptors();
 	void InitPipelines();
+	void LoadTextures();
 
 	void Update();
 
@@ -176,6 +194,10 @@ private:
 	VkDescriptorPool m_DescriptorPool;
 
 	std::vector<FrameData> m_Frames;
+
+	UploadContext m_UploadContext;
+
+	Texture m_SkyBoxTexture;
 
 	int m_FPSCounter;
 	float m_FPSTimePassed;
