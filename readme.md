@@ -9,4 +9,4 @@
 
 ## images
 
-(Images/Metaballs.gif)
+[Metaballs](Images/Metaballs.gif)
