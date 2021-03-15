@@ -28,8 +28,8 @@ layout(set = 0, binding = 4) buffer LightSettings
 const float PI = 3.14159265f;
 const int MAX_MARCHING_STEPS = 255;
 const float MIN_DIST = 0.0f;
-const float MAX_DIST = 100.0f;
-const float EPSILON = 0.0001f;
+const float MAX_DIST = 1000.0f;
+const float EPSILON = 0.001f;
 const float INFINITY = 1.0f / 0.0f;
 
 struct Ray
@@ -118,6 +118,11 @@ float BoxSDF(vec3 samplePoint, vec3 dimensions)
 	vec3 q = abs(samplePoint) - dimensions;
 	return length(max(q, 0.0)) + min(max(q.x, max(q.y, q.z)), 0.0);
 }
+float BoxSDF(vec2 samplePoint, vec2 dimensions)
+{
+	vec2 q = abs(samplePoint) - dimensions;
+	return length(max(q, 0.0)) + min(max(q.x, q.y), 0.0);
+}
 
 //Rounded box
 float RoundBoxSDF(vec3 p, vec3 b, float r)
@@ -150,13 +155,11 @@ vec3 OpRep(vec3 p, vec3 c)
 }
 
 //Limited repetition
-vec3 opRepLim(vec3 p, float c, vec3 l)
+vec3 opRepLim(vec3 p, vec3 c, vec3 l)
 {
 	//clamp 0,l so the left bottom of the tiling will be at (0,0), not at (-l / 2, l / 2). That way l{2,1,3} will tile 2,1,3 instead of 4,6,2
     return p - c * clamp(round(p / c), vec3(0,0,0), l);
 }
-
-///////
 
 //Only keep overlapping geometry
 SceneObject IntersectSDF(SceneObject d1, SceneObject d2)
@@ -170,6 +173,10 @@ SceneObject IntersectSDF(SceneObject d1, SceneObject d2)
     val == d1.value ? spec = d1.specular : spec = d2.specular;
 
     return CreateSceneObject(val, col, spec);
+}
+float IntersectSDF(float d1, float d2)
+{
+    return max(d1, d2);
 }
 
 //Add geometry together (Additive)
@@ -185,6 +192,10 @@ SceneObject AdditiveSDF(SceneObject d1, SceneObject d2)
 
     return CreateSceneObject(val, col, spec);
 }
+float AdditiveSDF(float d1, float d2)
+{
+    return min(d1, d2);
+}
 
 //Only keep non-overlapping geometry (Subtractive)
 SceneObject SubtractiveSDF(SceneObject d1, SceneObject d2)
@@ -198,6 +209,10 @@ SceneObject SubtractiveSDF(SceneObject d1, SceneObject d2)
     val == d1.value ? spec = d1.specular : spec = d2.specular;
 
     return CreateSceneObject(val, col, spec);
+}
+float SubtractiveSDF(float d1, float d2)
+{
+    return max(d1, -d2);
 }
 
 //Smooth addition
@@ -235,6 +250,50 @@ SceneObject SmoothIntersectionSDF(SceneObject d1, SceneObject d2, float k)
 
     return CreateSceneObject(val, col, spec);
 }
+
+vec3 RotateAroundX(vec3 samplePoint, float angle)
+{
+	float c = cos(angle);
+	float s = sin(angle);
+
+	mat3x3 mat = mat3x3(
+		vec3(1, 0, 0),
+		vec3(0, c, -s),
+		vec3(0, s, c)
+		);
+
+	return mat * samplePoint;
+}
+
+
+vec3 RotateAroundY(vec3 samplePoint, float angle)
+{
+	float c = cos(angle);
+	float s = sin(angle);
+
+	mat3x3 mat = mat3x3(
+		vec3(c, 0, s),
+		vec3(0, 1, 0),
+		vec3(-s, 0, c)
+		);
+
+	return mat * samplePoint;
+}
+
+
+vec3 RotateAroundZ(vec3 samplePoint, float angle)
+{
+	float c = cos(angle);
+	float s = sin(angle);
+
+	mat3x3 mat = mat3x3(
+		vec3(c, -s, 0),
+		vec3(s, c, 0),
+		vec3(0, 0, 1)
+		);
+
+	return mat * samplePoint;
+}
 /*
 ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
 */
@@ -266,44 +325,81 @@ SceneObject MetaBalls(vec3 samplePoint)
     return pass2;
 }
 
+SceneObject MenglerSponge(vec3 p, uint iterations)
+{
+    float val = RoundBoxSDF(p, vec3(1.0f), 0.5f);
+
+    float s = 1.0f; //scale of the cross to subtract from the cube (smaller scale is larger cross)
+    for(int i = 0; i < iterations; i++)
+    {
+        //p = RotateAroundY(p, radians(20.0f * s));
+        p = RotateAroundZ(p, radians(15.0f));
+
+        //Cross starting scale
+        float startScale = 3.0f;
+
+        //Set position for the cross
+        vec3 a = mod( p * s, 2.0 ) - 1.0;
+        s *= 7.0; //adjust how much to scale the cross each iteration (odd numbers work best)
+        vec3 r = abs(1.0 - (startScale * abs(a))); //offset position of the cross
+
+        r /= startScale;
+
+        //Create cross to subtrce from the cube
+        float da = max(r.x, r.y);
+        float db = max(r.y, r.z);
+        float dc = max(r.z, r.x);
+        float c = ((min(da, min(db, dc))* 3.0f) - 1.0f) / s;
+
+        val = max(val, c);
+    }
+
+    SceneObject mengler = CreateSceneObject(val, vec3(1), vec3(0));
+    return mengler;
+}
+
 SceneObject map(vec3 samplePoint)
 {
     //DISTANCE FUNCTIONS
     vec3 metalColor = vec3(0, 0, 0);
-    vec3 whiteColor = vec3(1.0f, 1.0f, 1.0f);
-    vec3 floorColor = vec3(0.1f, 0.1f, 0.1f);
 
+    vec3 copperSpecular = vec3(1.0f, 0.63f, 0.53f);
     vec3 goldSpecular = vec3(1.0f, 0.71f, 0.29f);
 
-    SceneObject goldSphere;
-    SceneObject whiteSphere;
-    SceneObject ground;
+    // SceneObject goldSphere;
+    // SceneObject copperSphere;
+    // SceneObject ground;
 
-    //repetitive spheres (gold)
-    vec3 infRep = opRepLim(samplePoint, 6, vec3(10, 0, 10));
-    goldSphere.value = SphereSDF(infRep - vec3(0, sin(sceneSettings.time) - 3.0f, 0), 1.0f);
-    goldSphere.color = metalColor;
-    goldSphere.specular = goldSpecular;
+    // //repetitive spheres (gold)
+    // vec3 infRep = opRepLim(samplePoint, vec3(6), vec3(5, 0, 10));
+    // goldSphere.value = SphereSDF(infRep - vec3(0, sin(sceneSettings.time) - 3.0f, 0), 1.0f);
+    // goldSphere.color = metalColor;
+    // goldSphere.specular = goldSpecular;
 
-    //Single white sphere
-    whiteSphere.value = SphereSDF(samplePoint, 2.0f);
-    whiteSphere.color = whiteColor;
-    whiteSphere.specular = vec3(1.0f, 1.0f, 1.0f);
+    // //Single white sphere
+    // copperSphere.value = SphereSDF(samplePoint, 2.0f);
+    // copperSphere.color = metalColor;
+    // copperSphere.specular = copperSpecular;
 
-    //Ground
-    ground.value = GroundPlaneSDF(samplePoint - vec3(0, -3.0f, 0));
-    ground.color = floorColor;
-    ground.specular = vec3(0.1f, 0.1f, 0.1f);
+    // //Metaballs
+    // SceneObject metaBalls = MetaBalls(samplePoint - vec3(-5, 1, -5));
 
-    //Metaballs
-    SceneObject metaBalls = MetaBalls(samplePoint - vec3(-5, 1, -5));
+    //Mengler sponge fractal
+    vec3 modifier = vec3(abs(samplePoint.x), samplePoint.y, abs(samplePoint.z));
+    SceneObject menglerSponge = MenglerSponge(modifier / 90.0f, 3);
+    menglerSponge.value *= 90.0f;
+
+    //ground
+    // float groundVal = GroundPlaneSDF(samplePoint - vec3(0, -6, 0));
+    // ground = CreateSceneObject(groundVal, vec3(.8f, .8f, .8f), vec3(.2f, .2f, .2f));
 
     //Combine everything
-    SceneObject combined = SmoothAdditiveSDF(goldSphere, whiteSphere, 0.5f);
-    SceneObject combined2 = SmoothAdditiveSDF(combined, ground, 0.5f);
-    SceneObject combined3 = AdditiveSDF(combined2, metaBalls);
+    // SceneObject combined = SmoothAdditiveSDF(goldSphere, copperSphere, 0.5f);
+    // SceneObject combined2 = SmoothAdditiveSDF(combined, ground, 0.5f);
+    // SceneObject combined3 = AdditiveSDF(combined2, metaBalls);
+    // SceneObject combined4 = AdditiveSDF(combined3, menglerSponge);
 
-    return combined3;
+    return menglerSponge;
 }
 
 vec3 EstimateNormal(vec3 samplePoint)
@@ -342,6 +438,27 @@ RayHit Trace(Ray ray, float start, float end)
     return CreateRayHit();
 }
 
+vec4 genAmbientOcclusion(vec3 ro, vec3 rd)
+{
+    vec4 totao = vec4(0.0);
+    float sca = 1.0;
+
+    for (int aoi = 0; aoi < 5; aoi++)
+    {
+        float hr = 0.01 + 0.02 * float(aoi * aoi);
+        vec3 aopos = ro + rd * hr;
+        float dd = map(aopos).value;
+        float ao = clamp(-(dd - hr), 0.0, 1.0);
+        totao += ao * sca * vec4(1.0, 1.0, 1.0, 1.0);
+        sca *= 0.75;
+    }
+
+    const float aoCoef = 0.5;
+    totao.w = 1.0 - clamp(aoCoef * totao.w, 0.0, 1.0);
+
+    return totao;
+}
+
 vec3 Shade(float tracedDistance, inout Ray ray, vec3 objectColor)
 {
     if(tracedDistance > MAX_DIST - EPSILON)
@@ -358,6 +475,19 @@ vec3 Shade(float tracedDistance, inout Ray ray, vec3 objectColor)
 
     vec3 collisionPoint = ray.origin + (ray.direction * tracedDistance);
     vec3 normal = EstimateNormal(collisionPoint);
+
+    //offset point so it doesn't intersect with itself
+    collisionPoint = collisionPoint + (normal * 0.01f);
+
+    //calculate shadow
+    Ray r = CreateRay(collisionPoint, -lightSettings.lightDir.xyz);
+    RayHit hit = Trace(r, MIN_DIST, MAX_DIST);
+    vec3 shadowMul = vec3(1);
+    if(hit.distance < MAX_DIST - EPSILON)
+    {
+        //shadow
+        shadowMul = vec3(0.4f, 0.4f, 0.4f);
+    }
 
     //Ambient
     float ambientStrength = 0.3f;
@@ -376,6 +506,10 @@ vec3 Shade(float tracedDistance, inout Ray ray, vec3 objectColor)
     float spec = pow(max(dot(halfVec, normal), 0.0f), shininess);
     vec3 specular = spec * (lightSettings.lightCol.xyz * lightSettings.lightCol.w);
     vec3 resultCol = (ambient + diffuse + specular) * objectColor;
+
+    resultCol *= shadowMul;
+
+    resultCol -= genAmbientOcclusion(collisionPoint + normal * 0.0001f, normal).xyz;
 
     return resultCol;
 }
@@ -398,7 +532,7 @@ void main()
     vec3 SPECULAR = vec3(0.6f, 0.6f, 0.6f);
     vec3 finalColor = vec3(0,0,0);
     Ray ray = originalRay; //Backup the original to reflect with
-    for(int i = 0; i < 8; ++i)
+    for(int i = 0; i < 5; ++i)
     {
         RayHit hit = Trace(ray, MIN_DIST, MAX_DIST);
         finalColor += ray.energy * Shade(hit.distance, ray, hit.color);

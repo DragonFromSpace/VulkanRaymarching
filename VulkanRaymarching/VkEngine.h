@@ -149,6 +149,7 @@ private:
 	void LoadTextures();
 
 	void Update();
+	void CleanPipelines();
 
 	FrameData& GetCurrentFrame();
 	size_t PadUniformBufferSize(size_t originalSize);

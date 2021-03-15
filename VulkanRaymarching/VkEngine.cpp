@@ -8,7 +8,12 @@ void VkEngine::GLFWKeyCallback(GLFWwindow* window, int key, int scancode, int ac
 {
 	if (key == GLFW_KEY_1 && action == GLFW_PRESS)
 	{
-		std::cout << "Key 1 pressed!" << '\n';
+		VkEngine* engine = reinterpret_cast<VkEngine*>(glfwGetWindowUserPointer(window));
+
+		engine->CleanPipelines();
+		engine->InitPipelines();
+
+		std::cout << "Shaders reloaded!" << '\n';
 	}
 }
 
@@ -55,6 +60,8 @@ void VkEngine::Cleanup()
 	if (m_IsInitialized)
 	{
 		m_DeletionQueue.Flush();
+
+		CleanPipelines();
 
 		vkDestroySurfaceKHR(m_Instance, m_WindowSurface, nullptr);
 		vkb::destroy_debug_utils_messenger(m_Instance, m_DebugMessenger, nullptr);
@@ -107,7 +114,7 @@ void VkEngine::DrawCompute()
 	//set light data
 	GPULightData lightData;
 	lightData.lightColor = glm::vec4(1.0f, 1.0f, 0.95f, 1.0f);
-	lightData.lightDirection = glm::normalize(glm::vec4(-0.9f, -1.0f, 0.0f, 1.0f));
+	lightData.lightDirection = glm::normalize(glm::vec4(0.5f, -0.9f, 0.3f, 1.0f));
 
 	vmaMapMemory(m_Allocator, GetCurrentFrame().lightBuffer.allocation, &data);
 	memcpy(data, &lightData, sizeof(GPULightData));
@@ -528,26 +535,28 @@ void VkEngine::InitPipelines()
 	builder.m_ShaderStageCreateInfo = vkInit::PipelineShaderStageInfo(VK_SHADER_STAGE_COMPUTE_BIT, computeShaderModule);
 	m_ComputePipeline = builder.BuildPipeline(m_Device);
 
-	m_DeletionQueue.PushFunction([=]()
+	/*m_DeletionQueue.PushFunction([=]()
 		{
 			vkDestroyPipeline(m_Device, m_ComputePipeline, nullptr);
 			vkDestroyPipelineLayout(m_Device, m_ComputePipelineLayout, nullptr);
-		});
+		});*/
 }
 
 void VkEngine::LoadTextures()
 {
 	Texture skybox;
 
-	bool b = VkUtils::LoadFromFile(*this, "../Resources/Textures/TexturesCom_HDRPanorama040_harbor_street_1K_hdri_sphere_tone.jpg", skybox.image);
+	//bool b = VkUtils::LoadFromFile(*this, "../Resources/Textures/TexturesCom_HDRPanorama040_harbor_street_1K_hdri_sphere_tone.jpg", skybox.image);
 	//bool b = VkUtils::LoadFromFile(*this, "../Resources/Textures/SunsetHDR_Converted.jpg", skybox.image);
+	bool b = VkUtils::LoadFromFile(*this, "../Resources/Textures/quarry_02_2k.jpg", skybox.image);
+	//bool b = VkUtils::LoadFromFile(*this, "../Resources/Textures/quarry_02_2k.png", skybox.image);
 	//bool b = VkUtils::LoadFromFile(*this, "../Resources/Textures/SnowyHDR_Converted.jpg", skybox.image);
 	if (!b)
 	{
 		throw std::runtime_error("VkEngine::LoadTextures() >> Failed to load skybox texture!");
 	}
 
-	VkImageViewCreateInfo imageInfo = vkInit::ImageViewCreateInfo(VK_FORMAT_R8G8B8A8_SRGB, skybox.image.image, VK_IMAGE_ASPECT_COLOR_BIT);
+	VkImageViewCreateInfo imageInfo = vkInit::ImageViewCreateInfo(VK_FORMAT_R8G8B8A8_UNORM, skybox.image.image, VK_IMAGE_ASPECT_COLOR_BIT);
 	VK_CHECK(vkCreateImageView(m_Device, &imageInfo, nullptr, &skybox.imageView), "VkEngine::LoadTextures() >> Failed to create Image view!");
 
 	m_DeletionQueue.PushFunction([=]()
@@ -585,6 +594,12 @@ void VkEngine::Update()
 	{
 		_Camera.ProcessKeyboard(Camera_Movement::DOWN);
 	}
+}
+
+void VkEngine::CleanPipelines()
+{
+	vkDestroyPipeline(m_Device, m_ComputePipeline, nullptr);
+	vkDestroyPipelineLayout(m_Device, m_ComputePipelineLayout, nullptr);
 }
 
 void VkEngine::ImmediateSubmit(std::function<void(VkCommandBuffer)>&& function)
