@@ -32,6 +32,6 @@ private:
 	float m_Yaw = -90.0f;
 	float m_Pitch = 0.0f;
 
-	float m_MovementSpeed = 0.1f;
+	float m_MovementSpeed = 0.5f;
 	float m_MouseSensitivity = 0.1f;
 };

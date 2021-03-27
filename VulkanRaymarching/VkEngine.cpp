@@ -35,11 +35,21 @@ void VkEngine::Init()
 	//Init glfw window
 	glfwInit();
 	glfwWindowHint(GLFW_CLIENT_API, GLFW_NO_API);	//Make sure no OpenGL context is created
+
+	//auto monitor = glfwGetPrimaryMonitor();
+	//const GLFWvidmode* mode = glfwGetVideoMode(monitor);
+
+	//glfwWindowHint(GLFW_RED_BITS, mode->redBits);
+	//glfwWindowHint(GLFW_GREEN_BITS, mode->greenBits);
+	//glfwWindowHint(GLFW_BLUE_BITS, mode->blueBits);
+	//glfwWindowHint(GLFW_REFRESH_RATE, mode->refreshRate);
+
 	m_pWindow = glfwCreateWindow(m_WindowExtent.width, m_WindowExtent.height, "Vulkan tutorial", NULL, NULL);
 	glfwSetWindowUserPointer(m_pWindow, this);
 	glfwSetKeyCallback(m_pWindow, GLFWKeyCallback);
 	glfwSetCursorPosCallback(m_pWindow, GLFWMouseCallback);
 	glfwSetInputMode(m_pWindow, GLFW_CURSOR, GLFW_CURSOR_DISABLED);
+
 
 	//init vulkan
 	InitVulkan();

@@ -165,7 +165,7 @@ private:
 	bool m_EnableValidationLayers = true;
 #endif
 
-	VkExtent2D m_WindowExtent{ 1280, 720 };
+	VkExtent2D m_WindowExtent{ 1600, 900 };
 	GLFWwindow* m_pWindow = nullptr;
 
 	VkInstance m_Instance = VK_NULL_HANDLE;

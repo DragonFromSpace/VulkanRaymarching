@@ -366,22 +366,32 @@ SceneObject map(vec3 samplePoint)
     vec3 copperSpecular = vec3(1.0f, 0.63f, 0.53f);
     vec3 goldSpecular = vec3(1.0f, 0.71f, 0.29f);
 
+    // SceneObject goldSphere;
+    // SceneObject copperSphere;
+    // SceneObject ground;
+
+    // //repetitive spheres (gold)
+    // vec3 infRep = opRepLim(samplePoint, vec3(6), vec3(5, 0, 10));
+    // goldSphere.value = SphereSDF(infRep - vec3(0, sin(sceneSettings.time) - 3.0f, 0), 1.0f);
+    // goldSphere.color = metalColor;
+    // goldSphere.specular = goldSpecular;
+
+    // //Single white sphere
+    // copperSphere.value = SphereSDF(samplePoint, 2.0f);
+    // copperSphere.color = metalColor;
+    // copperSphere.specular = copperSpecular;
+
+    // //Metaballs
+    // SceneObject metaBalls = MetaBalls(samplePoint - vec3(-5, 1, -5));
+
     //Mengler sponge fractal
-    //vec3 modifier = vec3(abs(samplePoint.x), samplePoint.y, abs(samplePoint.z));
-    //SceneObject menglerSponge = MenglerSponge(modifier / 90.0f, 3);
-    //menglerSponge.value *= 90.0f;
+    vec3 modifier = vec3(abs(samplePoint.x), samplePoint.y, abs(samplePoint.z));
+    SceneObject menglerSponge = MenglerSponge(modifier / 90.0f, 3);
+    menglerSponge.value *= 90.0f;
 
-    //Bend the space to bend the cube
-    const float k = 0.3f; // or some other amount
-    float c = cos(k*samplePoint.x);
-    float s = sin(k*samplePoint.x);
-    mat2  m = mat2(c,-s,s,c);
-    vec3  q = vec3(m*samplePoint.xy,samplePoint.z);
-
-    //create a box
-    float box = BoxSDF(q, vec3(1, 1, 2));
-
-    SceneObject finalObject = CreateSceneObject(box, vec3(1.0f, 1.0f, 0.9f), vec3(0));
+    //ground
+    // float groundVal = GroundPlaneSDF(samplePoint - vec3(0, -6, 0));
+    // ground = CreateSceneObject(groundVal, vec3(.8f, .8f, .8f), vec3(.2f, .2f, .2f));
 
     //Combine everything
     // SceneObject combined = SmoothAdditiveSDF(goldSphere, copperSphere, 0.5f);
@@ -389,7 +399,7 @@ SceneObject map(vec3 samplePoint)
     // SceneObject combined3 = AdditiveSDF(combined2, metaBalls);
     // SceneObject combined4 = AdditiveSDF(combined3, menglerSponge);
 
-    return finalObject;
+    return menglerSponge;
 }
 
 vec3 EstimateNormal(vec3 samplePoint)
