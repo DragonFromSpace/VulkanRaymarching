@@ -4,6 +4,8 @@
 #include <string>
 #include <chrono>
 
+static bool isMouseHidden = true;
+
 void VkEngine::GLFWKeyCallback(GLFWwindow* window, int key, int scancode, int action, int mods)
 {
 	if (key == GLFW_KEY_1 && action == GLFW_PRESS)
@@ -15,6 +17,20 @@ void VkEngine::GLFWKeyCallback(GLFWwindow* window, int key, int scancode, int ac
 
 		std::cout << "Shaders reloaded!" << '\n';
 	}
+
+	if (key == GLFW_KEY_ESCAPE && action == GLFW_PRESS)
+	{
+		if (isMouseHidden)
+		{
+			glfwSetInputMode(window, GLFW_CURSOR, GLFW_CURSOR_NORMAL);
+			isMouseHidden = false;
+		}
+		else
+		{
+			glfwSetInputMode(window, GLFW_CURSOR, GLFW_CURSOR_DISABLED);
+			isMouseHidden = true;
+		}
+	}
 }
 
 void VkEngine::GLFWMouseCallback(GLFWwindow* window, double xPos, double yPos)
@@ -23,7 +39,8 @@ void VkEngine::GLFWMouseCallback(GLFWwindow* window, double xPos, double yPos)
 	glm::vec2 deltaMouse = _PrevMousePos - glm::vec2(xPos, yPos);
 
 	//Update camera rotation
-	_Camera.ProcessMouseMovement(deltaMouse.x, deltaMouse.y);
+	if(isMouseHidden)
+		_Camera.ProcessMouseMovement(deltaMouse.x, deltaMouse.y);
 
 	//Update pos
 	_PrevMousePos.x = xPos;
@@ -36,31 +53,25 @@ void VkEngine::Init()
 	glfwInit();
 	glfwWindowHint(GLFW_CLIENT_API, GLFW_NO_API);	//Make sure no OpenGL context is created
 
-	//auto monitor = glfwGetPrimaryMonitor();
-	//const GLFWvidmode* mode = glfwGetVideoMode(monitor);
-
-	//glfwWindowHint(GLFW_RED_BITS, mode->redBits);
-	//glfwWindowHint(GLFW_GREEN_BITS, mode->greenBits);
-	//glfwWindowHint(GLFW_BLUE_BITS, mode->blueBits);
-	//glfwWindowHint(GLFW_REFRESH_RATE, mode->refreshRate);
-
 	m_pWindow = glfwCreateWindow(m_WindowExtent.width, m_WindowExtent.height, "Vulkan tutorial", NULL, NULL);
 	glfwSetWindowUserPointer(m_pWindow, this);
 	glfwSetKeyCallback(m_pWindow, GLFWKeyCallback);
 	glfwSetCursorPosCallback(m_pWindow, GLFWMouseCallback);
 	glfwSetInputMode(m_pWindow, GLFW_CURSOR, GLFW_CURSOR_DISABLED);
 
-
 	//init vulkan
 	InitVulkan();
 	InitSwapchain();
 	InitDefaultRenderPass();
+	InitUIRenderPass();
 	InitFramebuffers();
 	InitCommands();
 	InitSyncStructures();
 	LoadTextures();
 	InitDescriptors();
 	InitPipelines();
+
+	m_ImGui.Init();
 
 	m_IsInitialized = true;
 }
@@ -90,21 +101,33 @@ void VkEngine::Run()
 	{
 		glfwPollEvents();
 		Update();
-		DrawCompute();
+
+		//Imgui
+		m_ImGui.Draw();
+
 		Draw();
 	}
 
 	vkDeviceWaitIdle(m_Device);
 }
 
-void VkEngine::DrawCompute()
+void VkEngine::Draw()
+{
+	uint32_t currentFrame;
+	VK_CHECK(vkAcquireNextImageKHR(m_Device, m_Swapchain, UINT64_MAX, GetCurrentFrame().presentSemaphore, nullptr, &currentFrame), "VkEngine::Draw() >> Failed to acquire next image in swapchain!");
+
+	DrawCompute(currentFrame);
+	DrawGraphics(currentFrame);
+}
+
+void VkEngine::DrawCompute(uint32_t frameNumber)
 {
 	//Copy data in the dimensions
 	uint32_t* dimData;
-	vmaMapMemory(m_Allocator, GetCurrentFrame().dimensionsBuffer.allocation, (void**)&dimData);
+	vmaMapMemory(m_Allocator, m_Frames[frameNumber].dimensionsBuffer.allocation, (void**)&dimData);
 	dimData[0] = m_WindowExtent.width;
 	dimData[1] = m_WindowExtent.height;
-	vmaUnmapMemory(m_Allocator, GetCurrentFrame().dimensionsBuffer.allocation);
+	vmaUnmapMemory(m_Allocator, m_Frames[frameNumber].dimensionsBuffer.allocation);
 
 	//Create camera data
 	glm::mat4 view = _Camera.GetViewMatrix();
@@ -117,104 +140,122 @@ void VkEngine::DrawCompute()
 	sceneData.time = glfwGetTime();
 
 	void* data;
-	vmaMapMemory(m_Allocator, GetCurrentFrame().sceneBuffer.allocation, &data);
+	vmaMapMemory(m_Allocator, m_Frames[frameNumber].sceneBuffer.allocation, &data);
 	memcpy(data, &sceneData, sizeof(GPUSceneData));
-	vmaUnmapMemory(m_Allocator, GetCurrentFrame().sceneBuffer.allocation);
+	vmaUnmapMemory(m_Allocator, m_Frames[frameNumber].sceneBuffer.allocation);
 
 	//set light data
 	GPULightData lightData;
 	lightData.lightColor = glm::vec4(1.0f, 1.0f, 0.95f, 1.0f);
 	lightData.lightDirection = glm::normalize(glm::vec4(0.5f, -0.9f, 0.3f, 1.0f));
 
-	vmaMapMemory(m_Allocator, GetCurrentFrame().lightBuffer.allocation, &data);
+	vmaMapMemory(m_Allocator, m_Frames[frameNumber].lightBuffer.allocation, &data);
 	memcpy(data, &lightData, sizeof(GPULightData));
-	vmaUnmapMemory(m_Allocator, GetCurrentFrame().lightBuffer.allocation);
+	vmaUnmapMemory(m_Allocator, m_Frames[frameNumber].lightBuffer.allocation);
+
+	//Reset command buffer
+	vkResetCommandBuffer(m_Frames[frameNumber].computeCommandBuffer, 0);
 
 	//Run the compute buffer
 	VkCommandBufferBeginInfo beginInfo = vkInit::CommandBufferBeginInfo(VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT);
-	VK_CHECK(vkBeginCommandBuffer(GetCurrentFrame().computeCommandBuffer, &beginInfo), "VkEngine::DrawCompute() >> Failed to begin command buffer!");
+	VK_CHECK(vkBeginCommandBuffer(m_Frames[frameNumber].computeCommandBuffer, &beginInfo), "VkEngine::DrawCompute() >> Failed to begin command buffer!");
 
 	//Bind compute pipeline
-	vkCmdBindPipeline(GetCurrentFrame().computeCommandBuffer, VK_PIPELINE_BIND_POINT_COMPUTE, m_ComputePipeline);
+	vkCmdBindPipeline(m_Frames[frameNumber].computeCommandBuffer, VK_PIPELINE_BIND_POINT_COMPUTE, m_ComputePipeline);
 
 	//bind descriptor sets
-	vkCmdBindDescriptorSets(GetCurrentFrame().computeCommandBuffer, VK_PIPELINE_BIND_POINT_COMPUTE, m_ComputePipelineLayout, 0, 1, &GetCurrentFrame().computeDescriptorSet, 0, nullptr);
+	vkCmdBindDescriptorSets(m_Frames[frameNumber].computeCommandBuffer, VK_PIPELINE_BIND_POINT_COMPUTE, m_ComputePipelineLayout, 0, 1, &GetCurrentFrame().computeDescriptorSet, 0, nullptr);
 
 	//Dispatch compute
 	uint32_t groupsX = (uint32_t)glm::ceil(m_WindowExtent.width / 32.0f);
 	uint32_t groupsY = (uint32_t)glm::ceil(m_WindowExtent.height / 32.0f);
-	vkCmdDispatch(GetCurrentFrame().computeCommandBuffer, groupsX, groupsY, 1);
+	vkCmdDispatch(m_Frames[frameNumber].computeCommandBuffer, groupsX, groupsY, 1);
 
-	VK_CHECK(vkEndCommandBuffer(GetCurrentFrame().computeCommandBuffer), "VkEngine::DrawCompute() Failed to end command buffer!");
+	VK_CHECK(vkEndCommandBuffer(m_Frames[frameNumber].computeCommandBuffer), "VkEngine::DrawCompute() Failed to end command buffer!");
 
 	//Submit the queue
+	VkPipelineStageFlags waitPipelineFlag = VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT;
 	VkSubmitInfo submitInfo{};
 	submitInfo.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
-	submitInfo.waitSemaphoreCount = 0;
-	submitInfo.pWaitSemaphores = nullptr;
 	submitInfo.commandBufferCount = 1;
-	submitInfo.pCommandBuffers = &GetCurrentFrame().computeCommandBuffer;
-	submitInfo.signalSemaphoreCount = 0;
-	submitInfo.pSignalSemaphores = nullptr;
-	vkQueueSubmit(m_ComputeQueue, 1, &submitInfo, GetCurrentFrame().computeFence);
-
-	vkWaitForFences(m_Device, 1, &GetCurrentFrame().computeFence, VK_TRUE, UINT64_MAX);
-	vkResetFences(m_Device, 1, &GetCurrentFrame().computeFence);
-
-	vkResetCommandBuffer(GetCurrentFrame().computeCommandBuffer, 0);
+	submitInfo.pCommandBuffers = &m_Frames[frameNumber].computeCommandBuffer;
+	submitInfo.waitSemaphoreCount = 1; //wait untill the image is good to go
+	submitInfo.pWaitSemaphores = &m_Frames[frameNumber].presentSemaphore;
+	submitInfo.pWaitDstStageMask = &waitPipelineFlag;
+	submitInfo.signalSemaphoreCount = 1;
+	submitInfo.pSignalSemaphores = &m_Frames[frameNumber].computeSempahore;
+	vkQueueSubmit(m_ComputeQueue, 1, &submitInfo, VK_NULL_HANDLE);
 }
 
-void VkEngine::Draw()
+void VkEngine::DrawGraphics(uint32_t frameNumber)
 {
-	//get image in swapchain
-	uint32_t imageIndex;
-	VK_CHECK(vkAcquireNextImageKHR(m_Device, m_Swapchain, UINT64_MAX, GetCurrentFrame().presentSemaphore, nullptr, &imageIndex), "VkEngine::Draw() >> Failed to acquire next image in swapchain!");
+	//START RECORDING GRAPHICS COMMAND BUFFER
+	VkCommandBufferBeginInfo beginInfo = vkInit::CommandBufferBeginInfo(VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT);
+	vkBeginCommandBuffer(m_Frames[frameNumber].graphicsCommandBuffer, &beginInfo);
 
 	//Transition image from undefined to src_present
-	VkCommandBufferBeginInfo beginInfo = vkInit::CommandBufferBeginInfo(VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT);
-	vkBeginCommandBuffer(GetCurrentFrame().graphicsCommandBuffer, &beginInfo);
-
 	VkImageMemoryBarrier barrier{};
 	barrier.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER;
 	barrier.oldLayout = VK_IMAGE_LAYOUT_UNDEFINED;
-	barrier.newLayout = VK_IMAGE_LAYOUT_PRESENT_SRC_KHR;
+	barrier.newLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
 	barrier.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
 	barrier.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
 
-	barrier.image = m_SwapchainImages[imageIndex];
+	barrier.image = m_SwapchainImages[frameNumber];
 	barrier.subresourceRange.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
 	barrier.subresourceRange.baseMipLevel = 0;
 	barrier.subresourceRange.levelCount = 1;
 	barrier.subresourceRange.baseArrayLayer = 0;
 	barrier.subresourceRange.layerCount = 1;
 
-	barrier.srcAccessMask = VkAccessFlagBits::VK_ACCESS_COLOR_ATTACHMENT_READ_BIT;
-	barrier.dstAccessMask = VkAccessFlagBits::VK_ACCESS_SHADER_READ_BIT;
+	barrier.srcAccessMask = VK_ACCESS_SHADER_WRITE_BIT;
+	barrier.dstAccessMask = 0;
 
-	vkCmdPipelineBarrier(GetCurrentFrame().graphicsCommandBuffer, VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT, VkPipelineStageFlagBits::VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, 0, 0, nullptr, 0, nullptr, 1, &barrier);
+	vkCmdPipelineBarrier(m_Frames[frameNumber].graphicsCommandBuffer, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT, 0, 0, nullptr, 0, nullptr, 1, &barrier);
+	
+	//Begin a render pass
+	VkClearValue clearValue{};
+	clearValue.color = { 0.7f, 0.1f, 0.1f, 1.0f };
 
-	vkEndCommandBuffer(GetCurrentFrame().graphicsCommandBuffer);
+	VkRenderPassBeginInfo uiRpBeginInfo{};
+	uiRpBeginInfo.sType = VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO;
+	uiRpBeginInfo.renderPass = m_UIRenderPass;
+	uiRpBeginInfo.framebuffer = m_Framebuffers[frameNumber];
+	uiRpBeginInfo.renderArea.extent.width = m_WindowExtent.width;
+	uiRpBeginInfo.renderArea.extent.height = m_WindowExtent.height;
+	uiRpBeginInfo.clearValueCount = 1;
+	uiRpBeginInfo.pClearValues = &clearValue;
 
-	VkPipelineStageFlags waitPipelineFlag = VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT;
-	VkSubmitInfo submitInfo = vkInit::SubmitInfo(&GetCurrentFrame().graphicsCommandBuffer);
+	//Secons pass for the UI
+	vkCmdBeginRenderPass(m_Frames[frameNumber].graphicsCommandBuffer, &uiRpBeginInfo, VK_SUBPASS_CONTENTS_INLINE);
+	m_ImGui.Render(m_Frames[frameNumber].graphicsCommandBuffer);
+	vkCmdEndRenderPass(m_Frames[frameNumber].graphicsCommandBuffer);
+
+	vkEndCommandBuffer(m_Frames[frameNumber].graphicsCommandBuffer);
+
+	//Submit the queue
+	VkPipelineStageFlags waitPipelineFlag = VK_PIPELINE_STAGE_VERTEX_INPUT_BIT;
+	VkSubmitInfo submitInfo = vkInit::SubmitInfo(&m_Frames[frameNumber].graphicsCommandBuffer);
 	submitInfo.waitSemaphoreCount = 1;
-	submitInfo.pWaitSemaphores = &GetCurrentFrame().presentSemaphore;
+	submitInfo.pWaitSemaphores = &m_Frames[frameNumber].computeSempahore;
 	submitInfo.pWaitDstStageMask = &waitPipelineFlag;
 	submitInfo.signalSemaphoreCount = 1;
-	submitInfo.pSignalSemaphores = &GetCurrentFrame().imageTransSemaphore;
+	submitInfo.pSignalSemaphores = &m_Frames[frameNumber].imageTransSemaphore;
 
-	vkQueueSubmit(m_GraphicsQueue, 1, &submitInfo, GetCurrentFrame().imageTransFence);
-	vkWaitForFences(m_Device, 1, &GetCurrentFrame().imageTransFence, VK_TRUE, UINT64_MAX);
-	vkResetFences(m_Device, 1, &GetCurrentFrame().imageTransFence);
-	vkResetCommandBuffer(GetCurrentFrame().graphicsCommandBuffer, 0);
+	vkQueueSubmit(m_GraphicsQueue, 1, &submitInfo, m_Frames[frameNumber].imageTransFence);
+
+	//Reset febnce
+	vkWaitForFences(m_Device, 1, &m_Frames[frameNumber].imageTransFence, VK_TRUE, UINT64_MAX);
+	vkResetFences(m_Device, 1, &m_Frames[frameNumber].imageTransFence);
+	vkResetCommandBuffer(m_Frames[frameNumber].graphicsCommandBuffer, 0);
 
 	//PRESENT the image in the swapchain
 	VkPresentInfoKHR presentInfo = vkInit::PresentInfoKHR();
 	presentInfo.swapchainCount = 1;
 	presentInfo.pSwapchains = &m_Swapchain;
 	presentInfo.waitSemaphoreCount = 1;
-	presentInfo.pWaitSemaphores = &GetCurrentFrame().imageTransSemaphore;
-	presentInfo.pImageIndices = &imageIndex;
+	presentInfo.pWaitSemaphores = &m_Frames[frameNumber].imageTransSemaphore;
+	presentInfo.pImageIndices = &frameNumber;
 	VK_CHECK(vkQueuePresentKHR(m_GraphicsQueue, &presentInfo), "VkEngine::Draw() >> Failed to present the queue!");
 
 	m_FrameNumber++;
@@ -286,7 +327,7 @@ void VkEngine::InitSwapchain()
 	m_SwapchainImageFormat = vkbSwapchain.image_format;
 
 	m_Frames.resize(m_SwapchainImages.size());
-	m_FramesOverlapping = m_Frames.size();
+	m_OverlappingFrameCount = m_Frames.size();
 
 	//Add to deletion queue
 	m_DeletionQueue.PushFunction([=]()
@@ -303,7 +344,7 @@ void VkEngine::InitCommands()
 	VkCommandPoolCreateInfo commandPoolInfo = vkInit::CommandPoolCreateInfo(m_GraphicsQueueFamily, VK_COMMAND_POOL_CREATE_RESET_COMMAND_BUFFER_BIT);
 	VkCommandPoolCreateInfo computeCommandPool = vkInit::CommandPoolCreateInfo(m_ComputeQueueFamily, VK_COMMAND_POOL_CREATE_RESET_COMMAND_BUFFER_BIT);
 
-	for (int i = 0; i < m_FramesOverlapping; ++i)
+	for (int i = 0; i < m_OverlappingFrameCount; ++i)
 	{
 		VK_CHECK(vkCreateCommandPool(m_Device, &commandPoolInfo, nullptr, &m_Frames[i].graphicsCommandPool), "VkEngine::InitCommands() >> failed to create command pool!");
 		VK_CHECK(vkCreateCommandPool(m_Device, &computeCommandPool, nullptr, &m_Frames[i].computeCommandPool), "VkEngine::InitCommands() >> failed to create compute command pool!");
@@ -342,7 +383,7 @@ void VkEngine::InitDefaultRenderPass()
 	colorAttachment.stencilLoadOp = VK_ATTACHMENT_LOAD_OP_DONT_CARE;
 	colorAttachment.stencilStoreOp = VK_ATTACHMENT_STORE_OP_DONT_CARE;
 	colorAttachment.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
-	colorAttachment.finalLayout = VK_IMAGE_LAYOUT_PRESENT_SRC_KHR;
+	colorAttachment.finalLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
 
 	VkAttachmentReference colorAttachmentRef{};
 	colorAttachmentRef.attachment = 0;
@@ -364,6 +405,51 @@ void VkEngine::InitDefaultRenderPass()
 
 	VK_CHECK(vkCreateRenderPass(m_Device, &renderPass, nullptr, &m_RenderPass), "VkEngine::InitDefaultRenderPass() >> Failed to create render pass!");
 	m_DeletionQueue.PushFunction([=]() {vkDestroyRenderPass(m_Device, m_RenderPass, nullptr); });
+}
+
+void VkEngine::InitUIRenderPass()
+{
+	//COLOR
+	VkAttachmentDescription colorAttachment{};
+	colorAttachment.format = m_SwapchainImageFormat;
+	colorAttachment.samples = VK_SAMPLE_COUNT_1_BIT;
+	colorAttachment.loadOp = VK_ATTACHMENT_LOAD_OP_LOAD;
+	colorAttachment.storeOp = VK_ATTACHMENT_STORE_OP_STORE;
+	colorAttachment.stencilLoadOp = VK_ATTACHMENT_LOAD_OP_DONT_CARE;
+	colorAttachment.stencilStoreOp = VK_ATTACHMENT_STORE_OP_DONT_CARE;
+	colorAttachment.initialLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
+	colorAttachment.finalLayout = VK_IMAGE_LAYOUT_PRESENT_SRC_KHR;
+
+	VkAttachmentReference colorAttachmentRef{};
+	colorAttachmentRef.attachment = 0;
+	colorAttachmentRef.layout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
+
+	//Subpass and renderpass
+	VkSubpassDescription subpass{};
+	subpass.pipelineBindPoint = VK_PIPELINE_BIND_POINT_GRAPHICS;
+	subpass.colorAttachmentCount = 1;
+	subpass.pColorAttachments = &colorAttachmentRef;
+	subpass.pDepthStencilAttachment = nullptr;
+
+	VkSubpassDependency dependency{};
+	dependency.srcSubpass = VK_SUBPASS_EXTERNAL;
+	dependency.dstSubpass = 0;
+	dependency.srcStageMask = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
+	dependency.dstStageMask = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
+	dependency.srcAccessMask = 0;
+	dependency.dstAccessMask = VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT;
+
+	VkRenderPassCreateInfo renderPass{};
+	renderPass.sType = VK_STRUCTURE_TYPE_RENDER_PASS_CREATE_INFO;
+	renderPass.attachmentCount = 1;
+	renderPass.pAttachments = &colorAttachment;
+	renderPass.subpassCount = 1;
+	renderPass.pSubpasses = &subpass;
+	renderPass.dependencyCount = 1;
+	renderPass.pDependencies = &dependency;
+
+	VK_CHECK(vkCreateRenderPass(m_Device, &renderPass, nullptr, &m_UIRenderPass), "VkEngine::InitUIRenderPass() >> Failed to create render pass!");
+	m_DeletionQueue.PushFunction([=]() {vkDestroyRenderPass(m_Device, m_UIRenderPass, nullptr); });
 }
 
 void VkEngine::InitFramebuffers()
@@ -388,20 +474,22 @@ void VkEngine::InitSyncStructures()
 	VkFenceCreateInfo fenceInfo = vkInit::FenceCreateInfo();
 	VkSemaphoreCreateInfo semaphoreInfo = vkInit::SemaphoreCreateInfo();
 
-	for (int i = 0; i < m_FramesOverlapping; ++i)
+	for (int i = 0; i < m_OverlappingFrameCount; ++i)
 	{
-		VK_CHECK(vkCreateFence(m_Device, &fenceInfo, nullptr, &m_Frames[i].computeFence), "VkEngine::InitSyncStructures() >> Failed to create compute fence!");
+		//VK_CHECK(vkCreateFence(m_Device, &fenceInfo, nullptr, &m_Frames[i].computeFence), "VkEngine::InitSyncStructures() >> Failed to create compute fence!");
 		VK_CHECK(vkCreateFence(m_Device, &fenceInfo, nullptr, &m_Frames[i].imageTransFence), "VkEngine::InitSyncStructures() >> Failed to create compute fence!");
 
 		VK_CHECK(vkCreateSemaphore(m_Device, &semaphoreInfo, nullptr, &m_Frames[i].presentSemaphore), "VkEngine::InitSyncStructures() >> Failed to create present semaphore!");
 		VK_CHECK(vkCreateSemaphore(m_Device, &semaphoreInfo, nullptr, &m_Frames[i].imageTransSemaphore), "VkEngine::InitSyncStructures() >> Failed to create present semaphore!");
+		VK_CHECK(vkCreateSemaphore(m_Device, &semaphoreInfo, nullptr, &m_Frames[i].computeSempahore), "VkEngine::InitSyncStructures() >> Failed to create compute semaphore!");
 
 		m_DeletionQueue.PushFunction([=]()
 			{
-				vkDestroyFence(m_Device, m_Frames[i].computeFence, nullptr);
+				//vkDestroyFence(m_Device, m_Frames[i].computeFence, nullptr);
 				vkDestroyFence(m_Device, m_Frames[i].imageTransFence, nullptr);
 				vkDestroySemaphore(m_Device, m_Frames[i].presentSemaphore, nullptr);
 				vkDestroySemaphore(m_Device, m_Frames[i].imageTransSemaphore, nullptr);
+				vkDestroySemaphore(m_Device, m_Frames[i].computeSempahore, nullptr);
 			});
 	}
 
@@ -465,7 +553,7 @@ void VkEngine::InitDescriptors()
 		});
 
 	//Create buffer for each frame
-	for (int i = 0; i < m_FramesOverlapping; ++i)
+	for (int i = 0; i < m_OverlappingFrameCount; ++i)
 	{
 		//Create buffers for the dimensions and the output
 		m_Frames[i].dimensionsBuffer = CreateBuffer(sizeof(uint32_t) * 2, VK_BUFFER_USAGE_STORAGE_BUFFER_BIT, VMA_MEMORY_USAGE_CPU_TO_GPU);
@@ -538,6 +626,9 @@ void VkEngine::InitPipelines()
 	computePipelineLayoutCreateInfo.pSetLayouts = &m_ComputeDescriptorSetLayout;
 
 	VK_CHECK(vkCreatePipelineLayout(m_Device, &computePipelineLayoutCreateInfo, nullptr, &m_ComputePipelineLayout), "VkEngine::InitPipelines() >> Failed to create compute pipeline layout!");
+
+	VkPipelineLayoutCreateInfo graphicsLayoutCreateInfo = vkInit::PipelineLayoutCreateInfo();
+	graphicsLayoutCreateInfo.setLayoutCount = 0;
 
 	//Create base pipeline
 	ComputePipelineBuilder builder{};
@@ -658,7 +749,7 @@ AllocatedBuffer VkEngine::CreateBuffer(size_t allocationSize, VkBufferUsageFlags
 
 FrameData& VkEngine::GetCurrentFrame()
 {
-	return m_Frames[m_FrameNumber % m_FramesOverlapping];
+	return m_Frames[m_FrameNumber % m_OverlappingFrameCount];
 }
 
 size_t VkEngine::PadUniformBufferSize(size_t originalSize)

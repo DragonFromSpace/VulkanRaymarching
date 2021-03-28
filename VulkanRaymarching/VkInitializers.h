@@ -24,5 +24,5 @@ namespace vkInit
 	VkPipelineMultisampleStateCreateInfo PipelineMultisamplingStateCreateInfo();
 	VkPipelineColorBlendAttachmentState PipelineColorBlendAttachmentState();
 	VkPipelineLayoutCreateInfo PipelineLayoutCreateInfo();
-	VkPipelineDepthStencilStateCreateInfo PipelineDepthStencilStateCreateInfo(bool depthTest, bool depthWrite, VkCompareOp compareOp);
+	VkPipelineDepthStencilStateCreateInfo PipelineDepthStencilStateCreateInfo(bool depthTest, bool depthWrite, VkCompareOp compareOp = VK_COMPARE_OP_ALWAYS);
 }

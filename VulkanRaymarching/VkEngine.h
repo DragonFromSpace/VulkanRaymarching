@@ -6,6 +6,8 @@
 #include "Camera.h"
 #include "Texture.h"
 
+#include "ImGuiHandler.h"
+
 #define VK_CHECK(x, msg) if(x != VK_SUCCESS) throw std::runtime_error(msg);
 
 class GraphicsPipelineBuilder
@@ -91,8 +93,8 @@ struct Texture
 struct FrameData
 {
 	//semaphores and fences for each frame
-	VkSemaphore presentSemaphore, imageTransSemaphore;
-	VkFence computeFence, imageTransFence;
+	VkSemaphore presentSemaphore, imageTransSemaphore, computeSempahore;
+	VkFence imageTransFence;
 
 	//Command pool and buffer for each frame
 	VkCommandPool graphicsCommandPool;
@@ -120,11 +122,15 @@ static glm::vec2 _PrevMousePos;
 class VkEngine
 {
 public:
+	friend class ImGuiHandler;
+
+	VkEngine() 
+		:m_ImGui{this}
+	{};
+
 	void Init();
-	void Cleanup();
 	void Run();
-	void DrawCompute();
-	void Draw();
+	void Cleanup();
 
 	//Will push commands immediatly to the graphics queue (mainly used to store textures on the gpu once in the initialization)
 	void ImmediateSubmit(std::function<void(VkCommandBuffer)>&& function);
@@ -141,6 +147,7 @@ private:
 	void InitVulkan();
 	void InitSwapchain();
 	void InitDefaultRenderPass();
+	void InitUIRenderPass();
 	void InitFramebuffers();
 	void InitCommands();
 	void InitSyncStructures();
@@ -151,13 +158,17 @@ private:
 	void Update();
 	void CleanPipelines();
 
+	void Draw();
+	void DrawCompute(uint32_t frameNumber);
+	void DrawGraphics(uint32_t frameNumber);
+
 	FrameData& GetCurrentFrame();
 	size_t PadUniformBufferSize(size_t originalSize);
 	SwapChainSupportDetails QuerySwapChainSupport(VkPhysicalDevice device);
 
 	bool m_IsInitialized = false;
 	int m_FrameNumber = 0;
-	unsigned int m_FramesOverlapping = 2;
+	unsigned int m_OverlappingFrameCount = 2;
 
 #ifdef NDEBUG
 	bool m_EnableValidationLayers = false;
@@ -190,6 +201,7 @@ private:
 	uint32_t m_ComputeQueueFamily;
 
 	VkRenderPass m_RenderPass = VK_NULL_HANDLE;
+	VkRenderPass m_UIRenderPass = VK_NULL_HANDLE;
 	std::vector<VkFramebuffer> m_Framebuffers;
 
 	VkDescriptorSetLayout m_ComputeDescriptorSetLayout;
@@ -201,6 +213,5 @@ private:
 
 	Texture m_SkyBoxTexture;
 
-	int m_FPSCounter;
-	float m_FPSTimePassed;
+	ImGuiHandler m_ImGui;
 };
