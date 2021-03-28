@@ -127,7 +127,7 @@ float BoxSDF(vec2 samplePoint, vec2 dimensions)
 //Rounded box
 float RoundBoxSDF(vec3 p, vec3 b, float r)
 {
-	vec3 q = abs(p) - b;
+	vec3 q = (abs(p) - b);
 	return length(max(q, 0.0)) + min(max(q.x, max(q.y, q.z)), 0.0) - r;
 }
 
@@ -298,33 +298,6 @@ vec3 RotateAroundZ(vec3 samplePoint, float angle)
 ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
 */
 
-SceneObject MetaBalls(vec3 samplePoint)
-{
-    SceneObject ball1;
-    SceneObject ball2;
-    SceneObject ball3;
-
-    float s = sin(sceneSettings.time) / 1.5f;
-    float c = cos(sceneSettings.time) / 1.5f;
-
-    ball1.value = SphereSDF(samplePoint - vec3(s, c, 0), 1.0f);
-    ball1.color = vec3(0);
-    ball1.specular = vec3(1.0f, 0.74f, 0.34f);
-
-    ball2.value = SphereSDF(samplePoint- vec3(c, 0, s), 1.0f);
-    ball2.color = vec3(0);
-    ball2.specular = vec3(1.0f, 0.63f, 0.53f);
-
-    ball3.value = SphereSDF(samplePoint- vec3(0, c, s), 1.0f);
-    ball3.color = vec3(0);
-    ball3.specular = vec3(0.8f, 0.8f, 0.8f);
-
-    SceneObject pass1 = SmoothAdditiveSDF(ball1, ball2, 0.5f);
-    SceneObject pass2 = SmoothAdditiveSDF(pass1, ball3, 0.5f);
-
-    return pass2;
-}
-
 SceneObject MenglerSponge(vec3 p, uint iterations)
 {
     float val = RoundBoxSDF(p, vec3(1.0f), 0.5f);
@@ -360,46 +333,17 @@ SceneObject MenglerSponge(vec3 p, uint iterations)
 
 SceneObject map(vec3 samplePoint)
 {
-    //DISTANCE FUNCTIONS
-    vec3 metalColor = vec3(0, 0, 0);
-
-    vec3 copperSpecular = vec3(1.0f, 0.63f, 0.53f);
-    vec3 goldSpecular = vec3(1.0f, 0.71f, 0.29f);
-
-    // SceneObject goldSphere;
-    // SceneObject copperSphere;
-    // SceneObject ground;
-
-    // //repetitive spheres (gold)
-    // vec3 infRep = opRepLim(samplePoint, vec3(6), vec3(5, 0, 10));
-    // goldSphere.value = SphereSDF(infRep - vec3(0, sin(sceneSettings.time) - 3.0f, 0), 1.0f);
-    // goldSphere.color = metalColor;
-    // goldSphere.specular = goldSpecular;
-
-    // //Single white sphere
-    // copperSphere.value = SphereSDF(samplePoint, 2.0f);
-    // copperSphere.color = metalColor;
-    // copperSphere.specular = copperSpecular;
-
-    // //Metaballs
-    // SceneObject metaBalls = MetaBalls(samplePoint - vec3(-5, 1, -5));
-
     //Mengler sponge fractal
-    vec3 modifier = vec3(abs(samplePoint.x), samplePoint.y, abs(samplePoint.z));
-    SceneObject menglerSponge = MenglerSponge(modifier / 90.0f, 3);
-    menglerSponge.value *= 90.0f;
+    //vec3 modifier = vec3(abs(samplePoint.x), samplePoint.y, abs(samplePoint.z));
+    //SceneObject menglerSponge = MenglerSponge(modifier / 90.0f, 3);
+    //menglerSponge.value *= 90.0f;
 
-    //ground
-    // float groundVal = GroundPlaneSDF(samplePoint - vec3(0, -6, 0));
-    // ground = CreateSceneObject(groundVal, vec3(.8f, .8f, .8f), vec3(.2f, .2f, .2f));
+    vec3 columnP = opRepLim(samplePoint, vec3(1,1.1,1), vec3(1,6,1));
+    float cubeD = RoundBoxSDF(columnP, vec3(0.5f), 0.05f);
 
-    //Combine everything
-    // SceneObject combined = SmoothAdditiveSDF(goldSphere, copperSphere, 0.5f);
-    // SceneObject combined2 = SmoothAdditiveSDF(combined, ground, 0.5f);
-    // SceneObject combined3 = AdditiveSDF(combined2, metaBalls);
-    // SceneObject combined4 = AdditiveSDF(combined3, menglerSponge);
-
-    return menglerSponge;
+    SceneObject cube = CreateSceneObject(cubeD, vec3(0.6, 0.1, 0.5), vec3(0));
+    
+    return cube;
 }
 
 vec3 EstimateNormal(vec3 samplePoint)

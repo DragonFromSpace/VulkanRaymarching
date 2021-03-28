@@ -8,16 +8,6 @@ static bool isMouseHidden = true;
 
 void VkEngine::GLFWKeyCallback(GLFWwindow* window, int key, int scancode, int action, int mods)
 {
-	if (key == GLFW_KEY_1 && action == GLFW_PRESS)
-	{
-		VkEngine* engine = reinterpret_cast<VkEngine*>(glfwGetWindowUserPointer(window));
-
-		engine->CleanPipelines();
-		engine->InitPipelines();
-
-		std::cout << "Shaders reloaded!" << '\n';
-	}
-
 	if (key == GLFW_KEY_ESCAPE && action == GLFW_PRESS)
 	{
 		if (isMouseHidden)
@@ -93,6 +83,12 @@ void VkEngine::Cleanup()
 		//Cleanup window
 		glfwDestroyWindow(m_pWindow);
 	}
+}
+
+void VkEngine::ReloadShaders()
+{
+	CleanPipelines();
+	InitPipelines();
 }
 
 void VkEngine::Run()
@@ -242,11 +238,11 @@ void VkEngine::DrawGraphics(uint32_t frameNumber)
 	submitInfo.signalSemaphoreCount = 1;
 	submitInfo.pSignalSemaphores = &m_Frames[frameNumber].imageTransSemaphore;
 
-	vkQueueSubmit(m_GraphicsQueue, 1, &submitInfo, m_Frames[frameNumber].imageTransFence);
+	vkQueueSubmit(m_GraphicsQueue, 1, &submitInfo, m_Frames[frameNumber].graphicsFence);
 
-	//Reset febnce
-	vkWaitForFences(m_Device, 1, &m_Frames[frameNumber].imageTransFence, VK_TRUE, UINT64_MAX);
-	vkResetFences(m_Device, 1, &m_Frames[frameNumber].imageTransFence);
+	//Make sure the graphics queue is done before presenting the final image
+	vkWaitForFences(m_Device, 1, &m_Frames[frameNumber].graphicsFence, VK_TRUE, UINT64_MAX);
+	vkResetFences(m_Device, 1, &m_Frames[frameNumber].graphicsFence);
 	vkResetCommandBuffer(m_Frames[frameNumber].graphicsCommandBuffer, 0);
 
 	//PRESENT the image in the swapchain
@@ -476,8 +472,7 @@ void VkEngine::InitSyncStructures()
 
 	for (int i = 0; i < m_OverlappingFrameCount; ++i)
 	{
-		//VK_CHECK(vkCreateFence(m_Device, &fenceInfo, nullptr, &m_Frames[i].computeFence), "VkEngine::InitSyncStructures() >> Failed to create compute fence!");
-		VK_CHECK(vkCreateFence(m_Device, &fenceInfo, nullptr, &m_Frames[i].imageTransFence), "VkEngine::InitSyncStructures() >> Failed to create compute fence!");
+		VK_CHECK(vkCreateFence(m_Device, &fenceInfo, nullptr, &m_Frames[i].graphicsFence), "VkEngine::InitSyncStructures() >> Failed to create compute fence!");
 
 		VK_CHECK(vkCreateSemaphore(m_Device, &semaphoreInfo, nullptr, &m_Frames[i].presentSemaphore), "VkEngine::InitSyncStructures() >> Failed to create present semaphore!");
 		VK_CHECK(vkCreateSemaphore(m_Device, &semaphoreInfo, nullptr, &m_Frames[i].imageTransSemaphore), "VkEngine::InitSyncStructures() >> Failed to create present semaphore!");
@@ -485,8 +480,7 @@ void VkEngine::InitSyncStructures()
 
 		m_DeletionQueue.PushFunction([=]()
 			{
-				//vkDestroyFence(m_Device, m_Frames[i].computeFence, nullptr);
-				vkDestroyFence(m_Device, m_Frames[i].imageTransFence, nullptr);
+				vkDestroyFence(m_Device, m_Frames[i].graphicsFence, nullptr);
 				vkDestroySemaphore(m_Device, m_Frames[i].presentSemaphore, nullptr);
 				vkDestroySemaphore(m_Device, m_Frames[i].imageTransSemaphore, nullptr);
 				vkDestroySemaphore(m_Device, m_Frames[i].computeSempahore, nullptr);
@@ -617,7 +611,7 @@ void VkEngine::InitDescriptors()
 void VkEngine::InitPipelines()
 {
 	//Init shaders
-	Shader ComputeShader{ m_Device, "../Resources/Shaders/TestComputeShader_comp.spv" };
+	Shader ComputeShader{ m_Device, m_CurrentShader };
 	VkShaderModule computeShaderModule = ComputeShader.GetComputeShaderModule();
 
 	//Create compute pipeline layout

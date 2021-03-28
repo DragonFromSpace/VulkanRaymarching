@@ -1,4 +1,6 @@
 #pragma once
+#include "imfilebrowser.h"
+
 class VkEngine;
 
 class ImGuiHandler
@@ -14,7 +16,11 @@ private:
 	VkResult InitDescriptors();
 	void InitImgui();
 
+	void DrawShaderWindow();
+
 	VkEngine* m_pEngine;
+
+	ImGui::FileBrowser m_FileBrowser;
 
 	VkDescriptorPool m_ImguiDescriptorPool;
 };

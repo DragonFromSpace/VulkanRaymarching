@@ -1,0 +1,87 @@
+#version 460
+
+layout(local_size_x = 32, local_size_y = 32) in;
+
+layout(rgba32f, set = 0, binding = 0) uniform image2D outputImage;
+layout(set = 0, binding = 1) uniform sampler2D skyboxImage;
+
+layout(set = 0, binding = 2) buffer Dimensions
+{
+    uint dimX;
+    uint dimY;
+} dimensions;
+
+layout(set = 0, binding = 3) buffer SceneSettings
+{
+    mat4 viewMat;
+    mat4 viewInverseMat;
+    mat4 inverseProjMat;
+    float time;
+}sceneSettings;
+
+layout(set = 0, binding = 4) buffer LightSettings
+{
+    vec4 lightDir;
+    vec4 lightCol;
+}lightSettings;
+
+const float PI = 3.14159265f;
+const float INFINITY = 1.0f / 0.0f;
+
+int mandelbrot(vec2 p, int max_iterations)
+{
+    int i = 0;
+    float x = 0.0f, y = 0.0f;
+    while(i < max_iterations && x*x + y*y < 4.0)
+    {
+        float xTemp = x*x - y*y + p.x;
+        y = 2*x*y + p.y;
+        x = xTemp;
+        i++;
+    }
+
+    return i;
+}
+
+float mapToReal(int x, int width, float minR, float maxR)
+{
+    float range = maxR - minR;
+    return x * (range / width) + minR;
+}
+
+float mapToImaginary(int y, int height, float minI, float maxI)
+{
+    float range = maxI - minI;
+    return y * (range / height) + minI;
+}
+
+void main()
+{
+    if(gl_GlobalInvocationID.x >= dimensions.dimX ||  gl_GlobalInvocationID.y >= dimensions.dimY)
+        return;
+    
+    uvec2 id = gl_GlobalInvocationID.xy;
+
+    vec2 resolution = vec2(dimensions.dimX, dimensions.dimY);
+
+    vec3 finalColor = vec3(0,0,0);
+
+    //Create the ray from camera position to current pixel (+ (0.5, 0.5) is to get center of pixel)
+    vec2 uv = vec2(0);
+    uv.x = mapToReal(int(id.x), int(resolution.x), -2.5f, 0.7f);
+    uv.y = mapToReal(int(id.y), int(resolution.y), -1.0f, 1.0);
+
+    uv /= abs(sin(sceneSettings.time / 10.0f)) * 5.0f;
+    uv -= vec2(abs(sin(sceneSettings.time / 10.0f)), 0);
+
+    int n = mandelbrot(uv, 10000);
+    float nf = n / 10000;
+
+    float r = nf;
+    float g = nf;
+    float b = nf;
+    finalColor = vec3(r, g, b);
+
+    ivec2 imageUV = ivec2(int(gl_GlobalInvocationID.x), int(gl_GlobalInvocationID.y));
+    imageStore(outputImage, imageUV, vec4(finalColor, 1.0f));
+}

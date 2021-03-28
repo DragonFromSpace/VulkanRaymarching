@@ -9,7 +9,11 @@
 
 ImGuiHandler::ImGuiHandler(VkEngine* engine)
 	:m_pEngine{engine}
-{}
+{
+	m_FileBrowser.SetTitle("Shader selector");
+	m_FileBrowser.SetTypeFilters({".spv"}); //only look for compiled shader code //TODO: search for the actual file and compile during runtime
+	m_FileBrowser.SetPwd("../Resources/Shaders"); //start in the shader folder
+}
 
 void ImGuiHandler::Init()
 {
@@ -23,7 +27,9 @@ void ImGuiHandler::Draw()
 	ImGui_ImplGlfw_NewFrame();
 
 	ImGui::NewFrame();
-	ImGui::ShowDemoWindow();
+
+	DrawShaderWindow();
+
 	ImGui::Render();
 }
 
@@ -93,4 +99,34 @@ void ImGuiHandler::InitImgui()
 			vkDestroyDescriptorPool(m_pEngine->m_Device, m_ImguiDescriptorPool, nullptr);
 			ImGui_ImplVulkan_Shutdown();
 		});
+}
+
+void ImGuiHandler::DrawShaderWindow()
+{
+	ImGui::Begin("Shader selector");
+
+	//Open file browser
+	ImGui::Text((std::string("Current shader: ") + m_pEngine->m_CurrentShader).c_str());
+	if (ImGui::Button("Browse...", { 60, 30 }))
+	{
+		m_FileBrowser.Open();
+	}
+
+	if (ImGui::Button("Reload shader", { 100, 40 }))
+	{
+		m_pEngine->ReloadShaders();
+	}
+
+	//Display the browser
+	m_FileBrowser.Display();
+
+	//When file is selected
+	if (m_FileBrowser.HasSelected())
+	{
+		m_pEngine->m_CurrentShader = m_FileBrowser.GetSelected().string();
+		m_FileBrowser.ClearSelected();
+		m_pEngine->ReloadShaders();
+	}
+
+	ImGui::End();
 }

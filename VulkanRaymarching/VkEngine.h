@@ -94,7 +94,7 @@ struct FrameData
 {
 	//semaphores and fences for each frame
 	VkSemaphore presentSemaphore, imageTransSemaphore, computeSempahore;
-	VkFence imageTransFence;
+	VkFence graphicsFence;
 
 	//Command pool and buffer for each frame
 	VkCommandPool graphicsCommandPool;
@@ -131,6 +131,8 @@ public:
 	void Init();
 	void Run();
 	void Cleanup();
+
+	void ReloadShaders();
 
 	//Will push commands immediatly to the graphics queue (mainly used to store textures on the gpu once in the initialization)
 	void ImmediateSubmit(std::function<void(VkCommandBuffer)>&& function);
@@ -214,4 +216,6 @@ private:
 	Texture m_SkyBoxTexture;
 
 	ImGuiHandler m_ImGui;
+
+	std::string m_CurrentShader = "../Resources/Shaders/TestComputeShader_comp.spv";
 };

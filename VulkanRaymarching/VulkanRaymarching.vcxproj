@@ -201,6 +201,7 @@
   <ItemGroup>
     <ClInclude Include="Camera.h" />
     <ClInclude Include="ImGuiHandler.h" />
+    <ClInclude Include="imgui\imfilebrowser.h" />
     <ClInclude Include="pch.h" />
     <ClInclude Include="Shader.h" />
     <ClInclude Include="stb_image.h" />

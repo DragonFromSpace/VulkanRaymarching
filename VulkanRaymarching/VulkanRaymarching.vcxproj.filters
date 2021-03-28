@@ -9,9 +9,14 @@
       <UniqueIdentifier>{93995380-89BD-4b04-88EB-625FBE52EBFB}</UniqueIdentifier>
       <Extensions>h;hh;hpp;hxx;h++;hm;inl;inc;ipp;xsd</Extensions>
     </Filter>
-    <Filter Include="Resource Files">
-      <UniqueIdentifier>{67DA6AB6-F800-4c08-8B7A-83BB121AAD01}</UniqueIdentifier>
-      <Extensions>rc;ico;cur;bmp;dlg;rc2;rct;bin;rgs;gif;jpg;jpeg;jpe;resx;tiff;tif;png;wav;mfcribbon-ms</Extensions>
+    <Filter Include="3rdParty">
+      <UniqueIdentifier>{6196bcb9-c2f5-4547-884d-3f96de71543b}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="3rdParty\ImGui">
+      <UniqueIdentifier>{43ad6aa6-d071-41d1-8580-6b05fd711b35}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="3rdParty\VkBootstrap">
+      <UniqueIdentifier>{5ff4bad5-3f65-4cc6-9c2e-db74809a439a}</UniqueIdentifier>
     </Filter>
   </ItemGroup>
   <ItemGroup>
@@ -22,9 +27,6 @@
       <Filter>Source Files</Filter>
     </ClCompile>
     <ClCompile Include="Shader.cpp">
-      <Filter>Source Files</Filter>
-    </ClCompile>
-    <ClCompile Include="VkBootstrap.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
     <ClCompile Include="VkEngine.cpp">
@@ -43,25 +45,28 @@
       <Filter>Source Files</Filter>
     </ClCompile>
     <ClCompile Include="imgui\imgui.cpp">
-      <Filter>Source Files</Filter>
+      <Filter>3rdParty\ImGui</Filter>
     </ClCompile>
     <ClCompile Include="imgui\imgui_demo.cpp">
-      <Filter>Source Files</Filter>
+      <Filter>3rdParty\ImGui</Filter>
     </ClCompile>
     <ClCompile Include="imgui\imgui_draw.cpp">
-      <Filter>Source Files</Filter>
-    </ClCompile>
-    <ClCompile Include="imgui\imgui_widgets.cpp">
-      <Filter>Source Files</Filter>
-    </ClCompile>
-    <ClCompile Include="imgui\imgui_impl_vulkan.cpp">
-      <Filter>Source Files</Filter>
+      <Filter>3rdParty\ImGui</Filter>
     </ClCompile>
     <ClCompile Include="imgui\imgui_impl_glfw.cpp">
-      <Filter>Source Files</Filter>
+      <Filter>3rdParty\ImGui</Filter>
+    </ClCompile>
+    <ClCompile Include="imgui\imgui_impl_vulkan.cpp">
+      <Filter>3rdParty\ImGui</Filter>
     </ClCompile>
     <ClCompile Include="imgui\imgui_tables.cpp">
-      <Filter>Source Files</Filter>
+      <Filter>3rdParty\ImGui</Filter>
+    </ClCompile>
+    <ClCompile Include="imgui\imgui_widgets.cpp">
+      <Filter>3rdParty\ImGui</Filter>
+    </ClCompile>
+    <ClCompile Include="VkBootstrap.cpp">
+      <Filter>3rdParty\VkBootstrap</Filter>
     </ClCompile>
   </ItemGroup>
   <ItemGroup>
@@ -69,18 +74,6 @@
       <Filter>Header Files</Filter>
     </ClInclude>
     <ClInclude Include="Shader.h">
-      <Filter>Header Files</Filter>
-    </ClInclude>
-    <ClInclude Include="stb_image.h">
-      <Filter>Header Files</Filter>
-    </ClInclude>
-    <ClInclude Include="tiny_obj_loader.h">
-      <Filter>Header Files</Filter>
-    </ClInclude>
-    <ClInclude Include="vk_mem_alloc.h">
-      <Filter>Header Files</Filter>
-    </ClInclude>
-    <ClInclude Include="VkBootstrap.h">
       <Filter>Header Files</Filter>
     </ClInclude>
     <ClInclude Include="VkEngine.h">
@@ -99,6 +92,21 @@
       <Filter>Header Files</Filter>
     </ClInclude>
     <ClInclude Include="ImGuiHandler.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="tiny_obj_loader.h">
+      <Filter>3rdParty</Filter>
+    </ClInclude>
+    <ClInclude Include="stb_image.h">
+      <Filter>3rdParty</Filter>
+    </ClInclude>
+    <ClInclude Include="vk_mem_alloc.h">
+      <Filter>3rdParty</Filter>
+    </ClInclude>
+    <ClInclude Include="VkBootstrap.h">
+      <Filter>3rdParty\VkBootstrap</Filter>
+    </ClInclude>
+    <ClInclude Include="imgui\imfilebrowser.h">
       <Filter>Header Files</Filter>
     </ClInclude>
   </ItemGroup>
