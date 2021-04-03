@@ -121,39 +121,13 @@ void VkEngine::Draw()
 	DrawGraphics(currentFrame);
 }
 
+FrameData& VkEngine::GetCurrentFrame()
+{
+	return m_Frames[m_FrameNumber % m_OverlappingFrameCount];
+}
+
 void VkEngine::DrawCompute(uint32_t frameNumber)
 {
-	//Copy data in the dimensions
-	uint32_t* dimData;
-	vmaMapMemory(m_Allocator, m_ComputeShader->GetDimensionsBuffer(frameNumber).allocation, (void**)&dimData);
-	dimData[0] = m_WindowExtent.width;
-	dimData[1] = m_WindowExtent.height;
-	vmaUnmapMemory(m_Allocator, m_ComputeShader->GetDimensionsBuffer(frameNumber).allocation);
-
-	//Create camera data
-	glm::mat4 view = _Camera.GetViewMatrix();
-	glm::mat4 proj = glm::perspective(glm::radians(70.0f), (float)m_WindowExtent.width / (float)m_WindowExtent.height, 0.1f, 200.0f);
-
-	GPUSceneData sceneData;
-	sceneData.ViewMat = view;
-	sceneData.ViewInverseMat = glm::inverse(view);
-	sceneData.ProjInverseMat = glm::inverse(proj);
-	sceneData.time = glfwGetTime();
-
-	void* data;
-	vmaMapMemory(m_Allocator, m_ComputeShader->GetSceneBuffer(frameNumber).allocation, &data);
-	memcpy(data, &sceneData, sizeof(GPUSceneData));
-	vmaUnmapMemory(m_Allocator, m_ComputeShader->GetSceneBuffer(frameNumber).allocation);
-
-	//set light data
-	GPULightData lightData;
-	lightData.lightColor = glm::vec4(1.0f, 1.0f, 0.95f, 1.0f);
-	lightData.lightDirection = glm::normalize(glm::vec4(0.5f, -0.9f, 0.3f, 1.0f));
-
-	vmaMapMemory(m_Allocator, m_ComputeShader->GetLightBuffer(frameNumber).allocation, &data);
-	memcpy(data, &lightData, sizeof(GPULightData));
-	vmaUnmapMemory(m_Allocator, m_ComputeShader->GetLightBuffer(frameNumber).allocation);
-
 	//Reset command buffer
 	vkResetCommandBuffer(m_Frames[frameNumber].computeCommandBuffer, 0);
 
@@ -585,6 +559,28 @@ void VkEngine::Update()
 	{
 		_Camera.ProcessKeyboard(Camera_Movement::DOWN);
 	}
+
+	//Update shader variables
+	ComputeShader::DimensionsBufferData dimBufferData;
+	dimBufferData.dimX = m_WindowExtent.width;
+	dimBufferData.dimY = m_WindowExtent.height;
+	m_ComputeShader->SetDimensionsBufferData(dimBufferData);
+
+	ComputeShader::SceneBufferData sceneData;
+	glm::mat4 view = _Camera.GetViewMatrix();
+	glm::mat4 proj = glm::perspective(glm::radians(70.0f), (float)m_WindowExtent.width / (float)m_WindowExtent.height, 0.1f, 200.0f);
+	sceneData.viewMat = view;
+	sceneData.viewInverseMat = glm::inverse(view);
+	sceneData.projInverseMat = glm::inverse(proj);
+	sceneData.time = glfwGetTime();
+	m_ComputeShader->SetSceneBufferData(sceneData);
+
+	ComputeShader::LightBufferData lightData;
+	lightData.lightColor = glm::vec4(1.0f, 1.0f, 0.95f, 1.0f);
+	lightData.lightDirection = glm::normalize(glm::vec4(0.5f, -0.9f, 0.3f, 1.0f));
+	m_ComputeShader->SetLightBufferData(lightData);
+
+	m_ComputeShader->UpdateShaderVariables(m_FrameNumber % m_OverlappingFrameCount, this);
 }
 
 void VkEngine::CleanPipelines()
@@ -642,9 +638,16 @@ AllocatedBuffer VkEngine::CreateBuffer(size_t allocationSize, VkBufferUsageFlags
 	return newBuffer;
 }
 
-FrameData& VkEngine::GetCurrentFrame()
+void* VkEngine::GetBufferMemory(const AllocatedBuffer& buffer)
 {
-	return m_Frames[m_FrameNumber % m_OverlappingFrameCount];
+	void* data;
+	vmaMapMemory(m_Allocator, buffer.allocation, &data);
+	return data;
+}
+
+void VkEngine::ReleaseBufferMemory(const AllocatedBuffer& buffer)
+{
+	vmaUnmapMemory(m_Allocator, buffer.allocation);
 }
 
 size_t VkEngine::PadUniformBufferSize(size_t originalSize)

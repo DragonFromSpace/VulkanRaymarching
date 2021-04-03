@@ -66,26 +66,6 @@ struct SwapChainSupportDetails
 	std::vector<VkPresentModeKHR> presentModes;
 };
 
-struct GPUDimensionsData
-{
-	uint32_t dimX;
-	uint32_t dimY;
-};
-
-struct GPUSceneData
-{
-	glm::mat4 ViewMat;
-	glm::mat4 ViewInverseMat;
-	glm::mat4 ProjInverseMat;
-	float time;
-};
-
-struct GPULightData
-{
-	glm::vec4 lightDirection; //w = intensity
-	glm::vec4 lightColor;
-};
-
 struct Texture
 {
 	AllocatedImage image;
@@ -103,12 +83,6 @@ struct FrameData
 	VkCommandBuffer graphicsCommandBuffer;
 	VkCommandPool computeCommandPool;
 	VkCommandBuffer computeCommandBuffer;
-
-	//Buffer with camera info and descriptor set for each frame
-	//AllocatedBuffer dimensionsBuffer;
-	//AllocatedBuffer sceneBuffer;
-	//AllocatedBuffer lightBuffer;
-	//VkDescriptorSet computeDescriptorSet;
 };
 
 //Data for the immediate submit
@@ -140,6 +114,8 @@ public:
 	void ImmediateSubmit(std::function<void(VkCommandBuffer)>&& function);
 
 	AllocatedBuffer CreateBuffer(size_t allocationSize, VkBufferUsageFlags usage, VmaMemoryUsage memoryUsage, bool markDeletion = true);
+	void* GetBufferMemory(const AllocatedBuffer& buffer);
+	void ReleaseBufferMemory(const AllocatedBuffer& buffer);
 
 	VmaAllocator m_Allocator;
 	DeletionQueue m_DeletionQueue;
@@ -209,7 +185,6 @@ private:
 	VkRenderPass m_UIRenderPass = VK_NULL_HANDLE;
 	std::vector<VkFramebuffer> m_Framebuffers;
 
-	//VkDescriptorSetLayout m_ComputeDescriptorSetLayout;
 	VkDescriptorPool m_DescriptorPool;
 
 	std::vector<FrameData> m_Frames;

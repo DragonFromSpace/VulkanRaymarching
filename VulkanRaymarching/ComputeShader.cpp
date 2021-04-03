@@ -96,17 +96,17 @@ void ComputeShader::InitDescriptors(int overlappingFrames, VkEngine* engine)
 		VkDescriptorBufferInfo dimensionsBufferInfo{};
 		dimensionsBufferInfo.buffer = m_FrameData[i].dimensionsBuffer.buffer;
 		dimensionsBufferInfo.offset = 0;
-		dimensionsBufferInfo.range = sizeof(GPUDimensionsData);
+		dimensionsBufferInfo.range = sizeof(DimensionsBufferData);
 
 		VkDescriptorBufferInfo sceneBufferInfo{};
 		sceneBufferInfo.buffer = m_FrameData[i].sceneBuffer.buffer;
 		sceneBufferInfo.offset = 0;
-		sceneBufferInfo.range = sizeof(GPUSceneData);
+		sceneBufferInfo.range = sizeof(SceneBufferData);
 
 		VkDescriptorBufferInfo lightBufferInfo{};
 		lightBufferInfo.buffer = m_FrameData[i].lightBuffer.buffer;
 		lightBufferInfo.offset = 0;
-		lightBufferInfo.range = sizeof(GPULightData);
+		lightBufferInfo.range = sizeof(LightBufferData);
 
 		//Write texture to the descriptor set
 		VkWriteDescriptorSet imageOutputSetWrite = vkInit::WriteDescriptorSetImage(VkDescriptorType::VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, m_FrameData[i].descriptorSet, &outputImageInfo, 0);
@@ -117,4 +117,22 @@ void ComputeShader::InitDescriptors(int overlappingFrames, VkEngine* engine)
 		VkWriteDescriptorSet writeSets[] = { imageOutputSetWrite, skyboxTexture, dimensionsSetWrite, sceneSetWrite, lightSetWrite };
 		vkUpdateDescriptorSets(m_Device, 5, writeSets, 0, nullptr);
 	}
+}
+
+void ComputeShader::UpdateShaderVariables(int currentFrame, VkEngine* engine)
+{
+	//Update dimensions buffer
+	void* data = engine->GetBufferMemory(m_FrameData[currentFrame].dimensionsBuffer);
+	memcpy(data, &m_DimensionsBufferData, sizeof(DimensionsBufferData));
+	engine->ReleaseBufferMemory(m_FrameData[currentFrame].dimensionsBuffer);
+
+	//Update scene buffer
+	data = engine->GetBufferMemory(m_FrameData[currentFrame].sceneBuffer);
+	memcpy(data, &m_SceneBufferData, sizeof(SceneBufferData));
+	engine->ReleaseBufferMemory(m_FrameData[currentFrame].sceneBuffer);
+
+	//update light buffer
+	data = engine->GetBufferMemory(m_FrameData[currentFrame].lightBuffer);
+	memcpy(data, &m_LightBufferData, sizeof(LightBufferData));
+	engine->ReleaseBufferMemory(m_FrameData[currentFrame].lightBuffer);
 }

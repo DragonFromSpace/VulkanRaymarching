@@ -15,6 +15,8 @@ public:
 	const VkDescriptorSetLayout& GetDescriptorSetLayout() { return m_descriptorSetLayout; }
 
 	virtual void InitDescriptors(int overlappingFrames, VkEngine* engine) = 0; //TODO: make abstract
+	virtual void UpdateShaderVariables(int currentFrame, VkEngine* engine) = 0;
+
 	void ReloadShader(std::string newVertLocation, std::string newFragLocation);
 	void ReloadShader(std::string newComputeLocation);
 

@@ -49,7 +49,9 @@
     <ClCompile Include="Shader.cpp">
       <Filter>Shaders</Filter>
     </ClCompile>
-    <ClCompile Include="ComputeShader.cpp" />
+    <ClCompile Include="ComputeShader.cpp">
+      <Filter>Shaders</Filter>
+    </ClCompile>
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="tiny_obj_loader.h">
@@ -75,6 +77,8 @@
     <ClInclude Include="Shader.h">
       <Filter>Shaders</Filter>
     </ClInclude>
-    <ClInclude Include="ComputeShader.h" />
+    <ClInclude Include="ComputeShader.h">
+      <Filter>Shaders</Filter>
+    </ClInclude>
   </ItemGroup>
 </Project>
