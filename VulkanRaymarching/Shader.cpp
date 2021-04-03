@@ -3,29 +3,50 @@
 #include <fstream>
 
 Shader::Shader(const VkDevice& device, const std::string& vertShaderFile, const std::string& fragShaderFile)
+	:m_Device(device), m_VertLocation(vertShaderFile), m_FragLocation(fragShaderFile)
 {
-	m_Device = device;
-
-	auto vertShaderCode = ReadFile(vertShaderFile);
-	auto fragShaderCode = ReadFile(fragShaderFile);
-
-	m_VertShaderModule = CreateShaderModule(device, vertShaderCode);
-	m_FragShaderModule = CreateShaderModule(device, fragShaderCode);
+	LoadVertAndFragShader();
 }
 
 Shader::Shader(const VkDevice& device, const std::string& computeShaderFile)
+	:m_Device(device), m_ComputeLocation(computeShaderFile)
 {
-	m_Device = device;
-
-	auto computeShaderCode = ReadFile(computeShaderFile);
-	m_ComputeShaderModule = CreateShaderModule(device, computeShaderCode);
+	LoadComputeShader();
 }
 
-Shader::~Shader()
+void Shader::ReloadShader(std::string newVertLocation, std::string newFragLocation)
+{
+	m_VertLocation = newVertLocation;
+	m_FragLocation = newFragLocation;
+	LoadVertAndFragShader();
+}
+
+void Shader::ReloadShader(std::string newComputeLocation)
+{
+	m_ComputeLocation = newComputeLocation;
+	LoadComputeShader();
+}
+
+void Shader::CleanModules()
 {
 	vkDestroyShaderModule(m_Device, m_VertShaderModule, nullptr);
 	vkDestroyShaderModule(m_Device, m_FragShaderModule, nullptr);
 	vkDestroyShaderModule(m_Device, m_ComputeShaderModule, nullptr);
+}
+
+void Shader::LoadVertAndFragShader()
+{
+	auto vertShaderCode = ReadFile(m_VertLocation);
+	auto fragShaderCode = ReadFile(m_FragLocation);
+
+	m_VertShaderModule = CreateShaderModule(m_Device, vertShaderCode);
+	m_FragShaderModule = CreateShaderModule(m_Device, fragShaderCode);
+}
+
+void Shader::LoadComputeShader()
+{
+	auto computeShaderCode = ReadFile(m_ComputeLocation);
+	m_ComputeShaderModule = CreateShaderModule(m_Device, computeShaderCode);
 }
 
 std::vector<char> Shader::ReadFile(const std::string& fileName)

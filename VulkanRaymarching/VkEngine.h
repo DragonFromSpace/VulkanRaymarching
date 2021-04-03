@@ -10,6 +10,8 @@
 
 #define VK_CHECK(x, msg) if(x != VK_SUCCESS) throw std::runtime_error(msg);
 
+class ComputeShader;
+
 class GraphicsPipelineBuilder
 {
 public:
@@ -103,10 +105,10 @@ struct FrameData
 	VkCommandBuffer computeCommandBuffer;
 
 	//Buffer with camera info and descriptor set for each frame
-	AllocatedBuffer dimensionsBuffer;
-	AllocatedBuffer sceneBuffer;
-	AllocatedBuffer lightBuffer;
-	VkDescriptorSet computeDescriptorSet;
+	//AllocatedBuffer dimensionsBuffer;
+	//AllocatedBuffer sceneBuffer;
+	//AllocatedBuffer lightBuffer;
+	//VkDescriptorSet computeDescriptorSet;
 };
 
 //Data for the immediate submit
@@ -137,7 +139,7 @@ public:
 	//Will push commands immediatly to the graphics queue (mainly used to store textures on the gpu once in the initialization)
 	void ImmediateSubmit(std::function<void(VkCommandBuffer)>&& function);
 
-	AllocatedBuffer CreateBuffer(size_t allocationSize, VkBufferUsageFlags usage, VmaMemoryUsage memoryUsage);
+	AllocatedBuffer CreateBuffer(size_t allocationSize, VkBufferUsageFlags usage, VmaMemoryUsage memoryUsage, bool markDeletion = true);
 
 	VmaAllocator m_Allocator;
 	DeletionQueue m_DeletionQueue;
@@ -153,6 +155,7 @@ private:
 	void InitFramebuffers();
 	void InitCommands();
 	void InitSyncStructures();
+	void InitShaders();
 	void InitDescriptors();
 	void InitPipelines();
 	void LoadTextures();
@@ -206,7 +209,7 @@ private:
 	VkRenderPass m_UIRenderPass = VK_NULL_HANDLE;
 	std::vector<VkFramebuffer> m_Framebuffers;
 
-	VkDescriptorSetLayout m_ComputeDescriptorSetLayout;
+	//VkDescriptorSetLayout m_ComputeDescriptorSetLayout;
 	VkDescriptorPool m_DescriptorPool;
 
 	std::vector<FrameData> m_Frames;
@@ -218,4 +221,5 @@ private:
 	ImGuiHandler m_ImGui;
 
 	std::string m_CurrentShader = "../Resources/Shaders/TestComputeShader_comp.spv";
+	ComputeShader* m_ComputeShader;
 };

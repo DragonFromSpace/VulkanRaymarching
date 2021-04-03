@@ -1,6 +1,6 @@
 #include "pch.h"
 #include "VkEngine.h"
-#include "Shader.h"
+#include "ComputeShader.h"
 #include <string>
 #include <chrono>
 
@@ -58,6 +58,7 @@ void VkEngine::Init()
 	InitCommands();
 	InitSyncStructures();
 	LoadTextures();
+	InitShaders();
 	InitDescriptors();
 	InitPipelines();
 
@@ -82,12 +83,16 @@ void VkEngine::Cleanup()
 
 		//Cleanup window
 		glfwDestroyWindow(m_pWindow);
+
+		delete m_ComputeShader;
 	}
 }
 
 void VkEngine::ReloadShaders()
 {
 	CleanPipelines();
+
+	m_ComputeShader->ReloadShader(m_CurrentShader);
 	InitPipelines();
 }
 
@@ -120,10 +125,10 @@ void VkEngine::DrawCompute(uint32_t frameNumber)
 {
 	//Copy data in the dimensions
 	uint32_t* dimData;
-	vmaMapMemory(m_Allocator, m_Frames[frameNumber].dimensionsBuffer.allocation, (void**)&dimData);
+	vmaMapMemory(m_Allocator, m_ComputeShader->GetDimensionsBuffer(frameNumber).allocation, (void**)&dimData);
 	dimData[0] = m_WindowExtent.width;
 	dimData[1] = m_WindowExtent.height;
-	vmaUnmapMemory(m_Allocator, m_Frames[frameNumber].dimensionsBuffer.allocation);
+	vmaUnmapMemory(m_Allocator, m_ComputeShader->GetDimensionsBuffer(frameNumber).allocation);
 
 	//Create camera data
 	glm::mat4 view = _Camera.GetViewMatrix();
@@ -136,18 +141,18 @@ void VkEngine::DrawCompute(uint32_t frameNumber)
 	sceneData.time = glfwGetTime();
 
 	void* data;
-	vmaMapMemory(m_Allocator, m_Frames[frameNumber].sceneBuffer.allocation, &data);
+	vmaMapMemory(m_Allocator, m_ComputeShader->GetSceneBuffer(frameNumber).allocation, &data);
 	memcpy(data, &sceneData, sizeof(GPUSceneData));
-	vmaUnmapMemory(m_Allocator, m_Frames[frameNumber].sceneBuffer.allocation);
+	vmaUnmapMemory(m_Allocator, m_ComputeShader->GetSceneBuffer(frameNumber).allocation);
 
 	//set light data
 	GPULightData lightData;
 	lightData.lightColor = glm::vec4(1.0f, 1.0f, 0.95f, 1.0f);
 	lightData.lightDirection = glm::normalize(glm::vec4(0.5f, -0.9f, 0.3f, 1.0f));
 
-	vmaMapMemory(m_Allocator, m_Frames[frameNumber].lightBuffer.allocation, &data);
+	vmaMapMemory(m_Allocator, m_ComputeShader->GetLightBuffer(frameNumber).allocation, &data);
 	memcpy(data, &lightData, sizeof(GPULightData));
-	vmaUnmapMemory(m_Allocator, m_Frames[frameNumber].lightBuffer.allocation);
+	vmaUnmapMemory(m_Allocator, m_ComputeShader->GetLightBuffer(frameNumber).allocation);
 
 	//Reset command buffer
 	vkResetCommandBuffer(m_Frames[frameNumber].computeCommandBuffer, 0);
@@ -160,7 +165,7 @@ void VkEngine::DrawCompute(uint32_t frameNumber)
 	vkCmdBindPipeline(m_Frames[frameNumber].computeCommandBuffer, VK_PIPELINE_BIND_POINT_COMPUTE, m_ComputePipeline);
 
 	//bind descriptor sets
-	vkCmdBindDescriptorSets(m_Frames[frameNumber].computeCommandBuffer, VK_PIPELINE_BIND_POINT_COMPUTE, m_ComputePipelineLayout, 0, 1, &GetCurrentFrame().computeDescriptorSet, 0, nullptr);
+	vkCmdBindDescriptorSets(m_Frames[frameNumber].computeCommandBuffer, VK_PIPELINE_BIND_POINT_COMPUTE, m_ComputePipelineLayout, 0, 1, &m_ComputeShader->GetDescriptorSet(frameNumber), 0, nullptr);
 
 	//Dispatch compute
 	uint32_t groupsX = (uint32_t)glm::ceil(m_WindowExtent.width / 32.0f);
@@ -496,128 +501,27 @@ void VkEngine::InitSyncStructures()
 		});
 }
 
+void VkEngine::InitShaders()
+{
+	m_ComputeShader = new ComputeShader(m_Device, m_CurrentShader);
+}
+
 void VkEngine::InitDescriptors()
 {
-	//Create pool that can hold 10 storage buffers
-	std::vector<VkDescriptorPoolSize> sizes =
-	{
-		{VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 10},
-		{VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, 10},
-		{VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 10}
-	};
-
-	VkDescriptorPoolCreateInfo poolInfo{};
-	poolInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO;
-	poolInfo.flags = 0;
-	poolInfo.maxSets = 10;
-	poolInfo.poolSizeCount = (uint32_t)sizes.size();
-	poolInfo.pPoolSizes = sizes.data();
-
-	VK_CHECK(vkCreateDescriptorPool(m_Device, &poolInfo, nullptr, &m_DescriptorPool), "VkEngine::InitDescriptors() >> Failed to create descriptor pool!");
-	m_DeletionQueue.PushFunction([=]() {vkDestroyDescriptorPool(m_Device, m_DescriptorPool, nullptr); });
-
-	//Create descriptor set layout
-	VkDescriptorSetLayoutBinding outputImageBinding = vkInit::DescriptorSetLayoutBinding(VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, VK_SHADER_STAGE_COMPUTE_BIT, 0);
-	VkDescriptorSetLayoutBinding skyboxImageBinding = vkInit::DescriptorSetLayoutBinding(VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, VK_SHADER_STAGE_COMPUTE_BIT, 1);
-	VkDescriptorSetLayoutBinding dimensionsBinding = vkInit::DescriptorSetLayoutBinding(VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, VK_SHADER_STAGE_COMPUTE_BIT, 2);
-	VkDescriptorSetLayoutBinding sceneDataBinding = vkInit::DescriptorSetLayoutBinding(VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, VK_SHADER_STAGE_COMPUTE_BIT, 3);
-	VkDescriptorSetLayoutBinding lightDataBinding = vkInit::DescriptorSetLayoutBinding(VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, VK_SHADER_STAGE_COMPUTE_BIT, 4);
-	VkDescriptorSetLayoutBinding layoutBindings[] = { outputImageBinding, skyboxImageBinding, dimensionsBinding, sceneDataBinding, lightDataBinding };
-
-	//Create descriptor set layout for the storage buffer
-	VkDescriptorSetLayoutCreateInfo setInfo{};
-	setInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO;
-	setInfo.flags = 0;
-	setInfo.bindingCount = 5;
-	setInfo.pBindings = layoutBindings;
-	VK_CHECK(vkCreateDescriptorSetLayout(m_Device, &setInfo, nullptr, &m_ComputeDescriptorSetLayout), "VkEngine::InitDescriptors() >> Failed to create descriptor set layout!");
-
-	m_DeletionQueue.PushFunction([=]()
-		{
-			vkDestroyDescriptorSetLayout(m_Device, m_ComputeDescriptorSetLayout, nullptr);
-		});
-
-	//Create sampler for the textures
-	VkSamplerCreateInfo samplerInfo = vkInit::SamplerCreateInfo(VK_FILTER_LINEAR);
-	VkSampler blockySampler;
-	vkCreateSampler(m_Device, &samplerInfo, nullptr, &blockySampler);
-	m_DeletionQueue.PushFunction([=]()
-		{
-			vkDestroySampler(m_Device, blockySampler, nullptr);
-		});
-
-	//Create buffer for each frame
-	for (int i = 0; i < m_OverlappingFrameCount; ++i)
-	{
-		//Create buffers for the dimensions and the output
-		m_Frames[i].dimensionsBuffer = CreateBuffer(sizeof(uint32_t) * 2, VK_BUFFER_USAGE_STORAGE_BUFFER_BIT, VMA_MEMORY_USAGE_CPU_TO_GPU);
-		m_Frames[i].sceneBuffer = CreateBuffer(sizeof(glm::mat4) * 3 + sizeof(float), VK_BUFFER_USAGE_STORAGE_BUFFER_BIT, VMA_MEMORY_USAGE_CPU_TO_GPU);
-
-		//const size_t lightBufferPaddedSize = m_FramesOverlapping * PadUniformBufferSize(sizeof(GPULightData));
-		m_Frames[i].lightBuffer = CreateBuffer(sizeof(glm::vec4) * 2, VK_BUFFER_USAGE_STORAGE_BUFFER_BIT, VMA_MEMORY_USAGE_CPU_TO_GPU);
-		m_DeletionQueue.PushFunction([=]()
-			{
-				//vmaDestroyBuffer(m_Allocator, m_Frames[i].outputBuffer.buffer, m_Frames[i].outputBuffer.allocation);
-				vmaDestroyBuffer(m_Allocator, m_Frames[i].dimensionsBuffer.buffer, m_Frames[i].dimensionsBuffer.allocation);
-				vmaDestroyBuffer(m_Allocator, m_Frames[i].sceneBuffer.buffer, m_Frames[i].sceneBuffer.allocation);
-				vmaDestroyBuffer(m_Allocator, m_Frames[i].lightBuffer.buffer, m_Frames[i].lightBuffer.allocation);
-			});
-
-		//Allocate descriptor set per frame
-		VkDescriptorSetAllocateInfo allocInfo{};
-		allocInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO;
-		allocInfo.descriptorSetCount = 1;
-		allocInfo.descriptorPool = m_DescriptorPool;
-		allocInfo.pSetLayouts = &m_ComputeDescriptorSetLayout;
-		VK_CHECK(vkAllocateDescriptorSets(m_Device, &allocInfo, &m_Frames[i].computeDescriptorSet), "VkEngine::InitDescriptors() >> Failed to allocate descriptor set for the objects!");
-
-		//Write buffer to descriptor set
-		VkDescriptorImageInfo outputImageInfo{};
-		outputImageInfo.imageLayout = VK_IMAGE_LAYOUT_PRESENT_SRC_KHR;
-		outputImageInfo.imageView = m_SwapchainImageViews[i];
-		outputImageInfo.sampler = VK_NULL_HANDLE;
-
-		VkDescriptorImageInfo skyboxImageInfo{};
-		skyboxImageInfo.sampler = blockySampler;
-		skyboxImageInfo.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
-		skyboxImageInfo.imageView = m_SkyBoxTexture.imageView;
-
-		VkDescriptorBufferInfo dimensionsBufferInfo{};
-		dimensionsBufferInfo.buffer = m_Frames[i].dimensionsBuffer.buffer;
-		dimensionsBufferInfo.offset = 0;
-		dimensionsBufferInfo.range = sizeof(GPUDimensionsData);
-
-		VkDescriptorBufferInfo sceneBufferInfo{};
-		sceneBufferInfo.buffer = m_Frames[i].sceneBuffer.buffer;
-		sceneBufferInfo.offset = 0;
-		sceneBufferInfo.range = sizeof(GPUSceneData);
-
-		VkDescriptorBufferInfo lightBufferInfo{};
-		lightBufferInfo.buffer = m_Frames[i].lightBuffer.buffer;
-		lightBufferInfo.offset = 0; //Use offset of the padded size
-		lightBufferInfo.range = sizeof(GPULightData);
-
-		//Write texture to the descriptor set
-		VkWriteDescriptorSet imageOutputSetWrite = vkInit::WriteDescriptorSetImage(VkDescriptorType::VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, m_Frames[i].computeDescriptorSet, &outputImageInfo, 0);
-		VkWriteDescriptorSet skyboxTexture = vkInit::WriteDescriptorSetImage(VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, m_Frames[i].computeDescriptorSet, &skyboxImageInfo, 1);
-		VkWriteDescriptorSet dimensionsSetWrite = vkInit::WriteDescriptorSetBuffer(VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, m_Frames[i].computeDescriptorSet, &dimensionsBufferInfo, 2);
-		VkWriteDescriptorSet sceneSetWrite = vkInit::WriteDescriptorSetBuffer(VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, m_Frames[i].computeDescriptorSet, &sceneBufferInfo, 3);
-		VkWriteDescriptorSet lightSetWrite = vkInit::WriteDescriptorSetBuffer(VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, m_Frames[i].computeDescriptorSet, &lightBufferInfo, 4);
-		VkWriteDescriptorSet writeSets[] = { imageOutputSetWrite, skyboxTexture, dimensionsSetWrite, sceneSetWrite, lightSetWrite };
-		vkUpdateDescriptorSets(m_Device, 5, writeSets, 0, nullptr);
-	}
+	m_ComputeShader->SetSkyboxTexture(&m_SkyBoxTexture.imageView);
+	m_ComputeShader->SetSwapchainImage(m_SwapchainImageViews.data());
+	m_ComputeShader->InitDescriptors(m_OverlappingFrameCount, this);
 }
 
 void VkEngine::InitPipelines()
 {
 	//Init shaders
-	Shader ComputeShader{ m_Device, m_CurrentShader };
-	VkShaderModule computeShaderModule = ComputeShader.GetComputeShaderModule();
+	VkShaderModule computeShaderModule = m_ComputeShader->GetComputeShaderModule();
 
 	//Create compute pipeline layout
 	VkPipelineLayoutCreateInfo computePipelineLayoutCreateInfo = vkInit::PipelineLayoutCreateInfo();
 	computePipelineLayoutCreateInfo.setLayoutCount = 1;
-	computePipelineLayoutCreateInfo.pSetLayouts = &m_ComputeDescriptorSetLayout;
+	computePipelineLayoutCreateInfo.pSetLayouts = &m_ComputeShader->GetDescriptorSetLayout();
 
 	VK_CHECK(vkCreatePipelineLayout(m_Device, &computePipelineLayoutCreateInfo, nullptr, &m_ComputePipelineLayout), "VkEngine::InitPipelines() >> Failed to create compute pipeline layout!");
 
@@ -630,22 +534,14 @@ void VkEngine::InitPipelines()
 	builder.m_ShaderStageCreateInfo = vkInit::PipelineShaderStageInfo(VK_SHADER_STAGE_COMPUTE_BIT, computeShaderModule);
 	m_ComputePipeline = builder.BuildPipeline(m_Device);
 
-	/*m_DeletionQueue.PushFunction([=]()
-		{
-			vkDestroyPipeline(m_Device, m_ComputePipeline, nullptr);
-			vkDestroyPipelineLayout(m_Device, m_ComputePipelineLayout, nullptr);
-		});*/
+	m_ComputeShader->CleanModules();
 }
 
 void VkEngine::LoadTextures()
 {
 	Texture skybox;
 
-	//bool b = VkUtils::LoadFromFile(*this, "../Resources/Textures/TexturesCom_HDRPanorama040_harbor_street_1K_hdri_sphere_tone.jpg", skybox.image);
-	//bool b = VkUtils::LoadFromFile(*this, "../Resources/Textures/SunsetHDR_Converted.jpg", skybox.image);
 	bool b = VkUtils::LoadFromFile(*this, "../Resources/Textures/quarry_02_2k.jpg", skybox.image);
-	//bool b = VkUtils::LoadFromFile(*this, "../Resources/Textures/quarry_02_2k.png", skybox.image);
-	//bool b = VkUtils::LoadFromFile(*this, "../Resources/Textures/SnowyHDR_Converted.jpg", skybox.image);
 	if (!b)
 	{
 		throw std::runtime_error("VkEngine::LoadTextures() >> Failed to load skybox texture!");
@@ -724,7 +620,7 @@ void VkEngine::ImmediateSubmit(std::function<void(VkCommandBuffer)>&& function)
 	vkResetCommandPool(m_Device, m_UploadContext.commandPool, 0);
 }
 
-AllocatedBuffer VkEngine::CreateBuffer(size_t allocationSize, VkBufferUsageFlags usage, VmaMemoryUsage memoryUsage)
+AllocatedBuffer VkEngine::CreateBuffer(size_t allocationSize, VkBufferUsageFlags usage, VmaMemoryUsage memoryUsage, bool markDeletion)
 {
 	VkBufferCreateInfo bufferInfo{};
 	bufferInfo.sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO;
@@ -737,6 +633,11 @@ AllocatedBuffer VkEngine::CreateBuffer(size_t allocationSize, VkBufferUsageFlags
 
 	AllocatedBuffer newBuffer{};
 	VK_CHECK(vmaCreateBuffer(m_Allocator, &bufferInfo, &vmaAllocInfo, &newBuffer.buffer, &newBuffer.allocation, nullptr), "VkEngine::CreateBuffer() >> Failed to create buffer!");
+
+	if (markDeletion)
+	{
+		m_DeletionQueue.PushFunction([=]() {vmaDestroyBuffer(m_Allocator, newBuffer.buffer, newBuffer.allocation); });
+	}
 
 	return newBuffer;
 }

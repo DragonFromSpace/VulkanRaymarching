@@ -20,7 +20,7 @@ bool VkUtils::LoadFromFile(VkEngine& engine, const char* fileLocation, Allocated
 	void* pixelPtr = pixels;
 	VkDeviceSize imageSize = texWidth * texHeight * 4;
 
-	AllocatedBuffer stagingBuffer = engine.CreateBuffer(imageSize , VK_BUFFER_USAGE_TRANSFER_SRC_BIT, VMA_MEMORY_USAGE_CPU_ONLY);
+	AllocatedBuffer stagingBuffer = engine.CreateBuffer(imageSize , VK_BUFFER_USAGE_TRANSFER_SRC_BIT, VMA_MEMORY_USAGE_CPU_ONLY, false);
 
 	void* data;
 	VK_CHECK(vmaMapMemory(engine.m_Allocator, stagingBuffer.allocation, &data), "Texture::LoadFromFile() >> Failed to map image memory!");
