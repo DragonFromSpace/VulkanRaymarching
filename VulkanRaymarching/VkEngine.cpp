@@ -277,18 +277,28 @@ void VkEngine::InitVulkan()
 	//Get the graphics queue
 	auto graphicsQueue = device.get_queue(vkb::QueueType::graphics);
 	if(!graphicsQueue)
-		throw std::runtime_error("VkEngine::InitVulkan() >> No graphics queue found on this device!");
+		throw std::runtime_error("VkEngine::InitVulksan() >> No graphics queue found on this device!");
 	
 	m_GraphicsQueue = device.get_queue(vkb::QueueType::graphics).value();
 	m_GraphicsQueueFamily = device.get_queue_index(vkb::QueueType::graphics).value();
 
-	//Get compute queue
-	auto computeQueue = device.get_queue(vkb::QueueType::compute);
-	if(!computeQueue)
-		throw std::runtime_error("VkEngine::InitVulkan() >> No compute queue found on this device!");
-	
-	m_ComputeQueue = computeQueue.value();
-	m_ComputeQueueFamily = device.get_queue_index(vkb::QueueType::compute).value();
+	//Get compute queue (strt with looking for dedicated queue)
+	auto dedicatedComputeQueue = device.get_dedicated_queue(vkb::QueueType::compute);
+	if(dedicatedComputeQueue)
+	{
+		m_ComputeQueue = dedicatedComputeQueue.value();
+		m_ComputeQueueFamily = device.get_dedicated_queue_index(vkb::QueueType::compute).value();
+	}
+	else
+	{
+		//look for normal queue with compute
+		auto computeQueue = device.get_queue(vkb::QueueType::compute);
+		if(!computeQueue)
+			throw std::runtime_error("VkEngine::InitVulkan() >> No compute queue found on this device!");
+
+		m_ComputeQueue = computeQueue.value();
+		m_ComputeQueueFamily = device.get_queue_index(vkb::QueueType::compute).value();
+	}
 
 	//Initialize memory allocator
 	VmaAllocatorCreateInfo allocatorInfo{};
