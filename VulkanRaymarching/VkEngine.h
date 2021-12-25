@@ -6,7 +6,7 @@
 #include "Camera.h"
 #include "Texture.h"
 
-#include "ImGuiHandler.h"
+//#include "ImGuiHandler.h"
 
 #define VK_CHECK(x, msg) if(x != VK_SUCCESS) throw std::runtime_error(msg);
 
@@ -101,7 +101,7 @@ public:
 	friend class ImGuiHandler;
 
 	VkEngine() 
-		:m_ImGui{this}
+		//:m_ImGui{this}
 	{};
 
 	void Init();
@@ -193,7 +193,7 @@ private:
 
 	Texture m_SkyBoxTexture;
 
-	ImGuiHandler m_ImGui;
+	//ImGuiHandler m_ImGui;
 
 	std::string m_CurrentShader = "../Resources/Shaders/TestComputeShader_comp.spv";
 	ComputeShader* m_ComputeShader;

@@ -46,8 +46,8 @@ void VkEngine::Init()
 	m_pWindow = glfwCreateWindow(m_WindowExtent.width, m_WindowExtent.height, "Vulkan tutorial", NULL, NULL);
 	glfwSetWindowUserPointer(m_pWindow, this);
 	glfwSetKeyCallback(m_pWindow, GLFWKeyCallback);
-	glfwSetCursorPosCallback(m_pWindow, GLFWMouseCallback);
-	glfwSetInputMode(m_pWindow, GLFW_CURSOR, GLFW_CURSOR_DISABLED);
+	//glfwSetCursorPosCallback(m_pWindow, GLFWMouseCallback);
+	//glfwSetInputMode(m_pWindow, GLFW_CURSOR, GLFW_CURSOR_DISABLED);
 
 	//init vulkan
 	InitVulkan();
@@ -62,7 +62,7 @@ void VkEngine::Init()
 	InitDescriptors();
 	InitPipelines();
 
-	m_ImGui.Init();
+	//m_ImGui.Init();
 
 	m_IsInitialized = true;
 }
@@ -104,7 +104,7 @@ void VkEngine::Run()
 		Update();
 
 		//Imgui
-		m_ImGui.Draw();
+		//m_ImGui.Draw();
 
 		Draw();
 	}
@@ -203,7 +203,7 @@ void VkEngine::DrawGraphics(uint32_t frameNumber)
 
 	//Secons pass for the UI
 	vkCmdBeginRenderPass(m_Frames[frameNumber].graphicsCommandBuffer, &uiRpBeginInfo, VK_SUBPASS_CONTENTS_INLINE);
-	m_ImGui.Render(m_Frames[frameNumber].graphicsCommandBuffer);
+	//m_ImGui.Render(m_Frames[frameNumber].graphicsCommandBuffer);
 	vkCmdEndRenderPass(m_Frames[frameNumber].graphicsCommandBuffer);
 
 	vkEndCommandBuffer(m_Frames[frameNumber].graphicsCommandBuffer);
@@ -245,6 +245,11 @@ void VkEngine::InitVulkan()
 	instanceBuilder.require_api_version(1, 1, 0);
 	instanceBuilder.use_default_debug_messenger();
 	vkb::detail::Result<vkb::Instance> vkbInstanceResult = instanceBuilder.build();
+	if (!vkbInstanceResult)
+	{
+    	std::cerr << "Failed to create Vulkan instance. Error: " << vkbInstanceResult.error().message() << "\n";
+	}
+
 	vkb::Instance vkbInstance = vkbInstanceResult.value();
 
 	m_Instance = vkbInstance.instance;
@@ -270,11 +275,19 @@ void VkEngine::InitVulkan()
 	m_Device = device.device;
 
 	//Get the graphics queue
+	auto graphicsQueue = device.get_queue(vkb::QueueType::graphics);
+	if(!graphicsQueue)
+		throw std::runtime_error("VkEngine::InitVulkan() >> No graphics queue found on this device!");
+	
 	m_GraphicsQueue = device.get_queue(vkb::QueueType::graphics).value();
 	m_GraphicsQueueFamily = device.get_queue_index(vkb::QueueType::graphics).value();
 
 	//Get compute queue
-	m_ComputeQueue = device.get_queue(vkb::QueueType::compute).value();
+	auto computeQueue = device.get_queue(vkb::QueueType::compute);
+	if(!computeQueue)
+		throw std::runtime_error("VkEngine::InitVulkan() >> No compute queue found on this device!");
+	
+	m_ComputeQueue = computeQueue.value();
 	m_ComputeQueueFamily = device.get_queue_index(vkb::QueueType::compute).value();
 
 	//Initialize memory allocator
