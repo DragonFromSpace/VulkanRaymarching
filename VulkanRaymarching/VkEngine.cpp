@@ -33,8 +33,8 @@ void VkEngine::GLFWMouseCallback(GLFWwindow* window, double xPos, double yPos)
 		_Camera.ProcessMouseMovement(deltaMouse.x, deltaMouse.y);
 
 	//Update pos
-	_PrevMousePos.x = xPos;
-	_PrevMousePos.y = yPos;
+	_PrevMousePos.x = (float)xPos;
+	_PrevMousePos.y = (float)yPos;
 }
 
 void VkEngine::Init()
@@ -325,7 +325,7 @@ void VkEngine::InitSwapchain()
 	m_SwapchainImageFormat = vkbSwapchain.image_format;
 
 	m_Frames.resize(m_SwapchainImages.size());
-	m_OverlappingFrameCount = m_Frames.size();
+	m_OverlappingFrameCount = (unsigned int)m_Frames.size();
 
 	//Add to deletion queue
 	m_DeletionQueue.PushFunction([=]()
@@ -342,7 +342,7 @@ void VkEngine::InitCommands()
 	VkCommandPoolCreateInfo commandPoolInfo = vkInit::CommandPoolCreateInfo(m_GraphicsQueueFamily, VK_COMMAND_POOL_CREATE_RESET_COMMAND_BUFFER_BIT);
 	VkCommandPoolCreateInfo computeCommandPool = vkInit::CommandPoolCreateInfo(m_ComputeQueueFamily, VK_COMMAND_POOL_CREATE_RESET_COMMAND_BUFFER_BIT);
 
-	for (int i = 0; i < m_OverlappingFrameCount; ++i)
+	for (unsigned int i = 0; i < m_OverlappingFrameCount; ++i)
 	{
 		VK_CHECK(vkCreateCommandPool(m_Device, &commandPoolInfo, nullptr, &m_Frames[i].graphicsCommandPool), "VkEngine::InitCommands() >> failed to create command pool!");
 		VK_CHECK(vkCreateCommandPool(m_Device, &computeCommandPool, nullptr, &m_Frames[i].computeCommandPool), "VkEngine::InitCommands() >> failed to create compute command pool!");
@@ -454,7 +454,7 @@ void VkEngine::InitFramebuffers()
 {
 	VkFramebufferCreateInfo framebufferInfo = vkInit::FramebufferCreateInfo(m_RenderPass, m_WindowExtent);
 
-	uint32_t imageCount = m_SwapchainImages.size();
+	uint32_t imageCount = (uint32_t)m_SwapchainImages.size();
 	m_Framebuffers = std::vector<VkFramebuffer>(imageCount);
 
 	for (uint32_t i = 0; i < imageCount; ++i)
@@ -472,7 +472,7 @@ void VkEngine::InitSyncStructures()
 	VkFenceCreateInfo fenceInfo = vkInit::FenceCreateInfo();
 	VkSemaphoreCreateInfo semaphoreInfo = vkInit::SemaphoreCreateInfo();
 
-	for (int i = 0; i < m_OverlappingFrameCount; ++i)
+	for (unsigned int i = 0; i < m_OverlappingFrameCount; ++i)
 	{
 		VK_CHECK(vkCreateFence(m_Device, &fenceInfo, nullptr, &m_Frames[i].graphicsFence), "VkEngine::InitSyncStructures() >> Failed to create compute fence!");
 
@@ -595,7 +595,7 @@ void VkEngine::Update()
 	sceneData.viewMat = view;
 	sceneData.viewInverseMat = glm::inverse(view);
 	sceneData.projInverseMat = glm::inverse(proj);
-	sceneData.time = glfwGetTime();
+	sceneData.time = (float)glfwGetTime();
 	m_ComputeShader->SetSceneBufferData(sceneData);
 
 	ComputeShader::LightBufferData lightData;
@@ -739,7 +739,7 @@ VkPipeline GraphicsPipelineBuilder::BuildPipeline(const VkDevice& device, const 
 	//Build the pipeline
 	VkGraphicsPipelineCreateInfo pipelineInfo{};
 	pipelineInfo.sType = VK_STRUCTURE_TYPE_GRAPHICS_PIPELINE_CREATE_INFO;
-	pipelineInfo.stageCount = m_ShaderStages.size();
+	pipelineInfo.stageCount = (uint32_t)m_ShaderStages.size();
 	pipelineInfo.pStages = m_ShaderStages.data();
 	pipelineInfo.pVertexInputState = &m_VertexInputInfo;
 	pipelineInfo.pInputAssemblyState = &m_InputAssemblyInfo;
