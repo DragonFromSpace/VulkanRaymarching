@@ -3651,15 +3651,15 @@ void *aligned_alloc(size_t alignment, size_t size)
 #if VMA_STATS_STRING_ENABLED
     static inline void VmaUint32ToStr(char* outStr, size_t strLen, uint32_t num)
     {
-        snprintf(outStr, strLen, "%u", static_cast<unsigned int>(num));
+        sprintf_s(outStr, strLen, "%u", static_cast<unsigned int>(num));
     }
     static inline void VmaUint64ToStr(char* outStr, size_t strLen, uint64_t num)
     {
-        snprintf(outStr, strLen, "%llu", static_cast<unsigned long long>(num));
+        sprintf_s(outStr, strLen, "%llu", static_cast<unsigned long long>(num));
     }
     static inline void VmaPtrToStr(char* outStr, size_t strLen, const void* ptr)
     {
-        snprintf(outStr, strLen, "%p", ptr);
+        sprintf_s(outStr, strLen, "%p", ptr);
     }
 #endif
 

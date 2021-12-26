@@ -23,7 +23,6 @@
     <Keyword>Win32Proj</Keyword>
     <ProjectGuid>{00854310-4d71-44e0-be64-9d1016547c66}</ProjectGuid>
     <RootNamespace>VulkanRaymarching</RootNamespace>
-    <WindowsTargetPlatformVersion>10.0</WindowsTargetPlatformVersion>
   </PropertyGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.Default.props" />
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Debug|Win32'" Label="Configuration">
@@ -128,7 +127,7 @@
     <Link>
       <SubSystem>Console</SubSystem>
       <GenerateDebugInformation>true</GenerateDebugInformation>
-      <AdditionalLibraryDirectories>D:\Users\Bjorn\Documents\Libraries\Vulkan\1.2.162.1\Lib;D:\Users\Bjorn\Documents\Libraries\GLFW\lib\x64;%(AdditionalLibraryDirectories)</AdditionalLibraryDirectories>
+      <AdditionalLibraryDirectories>D:\Users\Bjorn\Documents\VS_projects\VulkanRaymarching\3rdParty\Vulkan\1.2.182.0\Lib;D:\Users\Bjorn\Documents\VS_projects\VulkanRaymarching\3rdParty\GLFW\x64\lib-vc2019;%(AdditionalLibraryDirectories)</AdditionalLibraryDirectories>
       <AdditionalDependencies>vulkan-1.lib;glfw3.lib;%(AdditionalDependencies)</AdditionalDependencies>
     </Link>
   </ItemDefinitionGroup>
