@@ -327,13 +327,13 @@ SceneObject MetaBalls(vec3 samplePoint)
 
 SceneObject MenglerSponge(vec3 p, uint iterations)
 {
-    float val = BoxSDF(p, vec3(1.0f));
+    float val = RoundBoxSDF(p, vec3(1.0f), 0.5f);
 
     float s = 1.0f; //scale of the cross to subtract from the cube (smaller scale is larger cross)
     for(int i = 0; i < iterations; i++)
     {
         //p = RotateAroundY(p, radians(20.0f * s));
-        //p = RotateAroundZ(p, radians(15.0f));
+        p = RotateAroundZ(p, radians(15.0f));
 
         //Cross starting scale
         float startScale = 3.0f;
@@ -366,31 +366,20 @@ SceneObject map(vec3 samplePoint)
     vec3 copperSpecular = vec3(1.0f, 0.63f, 0.53f);
     vec3 goldSpecular = vec3(1.0f, 0.71f, 0.29f);
 
-    //Mengler sponge fractal
-    SceneObject menglerSponge = MenglerSponge(samplePoint / 90.0f, 3);
-    menglerSponge.value *= 90.0f;
+    float s = INFINITY;
+    for(int x = 0; x < 10; ++x)
+    {
+        for(int y = 0; y < 10; ++y)
+        {
+            float ns = SphereSDF(samplePoint - (vec3(x, 0, y) * 2.5f), 1.0f);
+            s = AdditiveSDF(ns, s);
+        }
+    }
 
-    menglerSponge.value += 0;
+    //float box = BoxSDF(samplePoint, vec3(1,1,1));
+    SceneObject finalObject = CreateSceneObject(s, metalColor, goldSpecular);
 
-    //Bend the space to bend the cube
-    // const float k = 0.3f; // or some other amount
-    // float c = cos(k*samplePoint.x);
-    // float s = sin(k*samplePoint.x);
-    // mat2  m = mat2(c,-s,s,c);
-    // vec3  q = vec3(m*samplePoint.xy,samplePoint.z);
-
-    //create a box
-    //float box = BoxSDF(q, vec3(1, 1, 2));
-
-    //SceneObject finalObject = CreateSceneObject(box, vec3(1.0f, 1.0f, 0.9f), vec3(0));
-
-    //Combine everything
-    // SceneObject combined = SmoothAdditiveSDF(goldSphere, copperSphere, 0.5f);
-    // SceneObject combined2 = SmoothAdditiveSDF(combined, ground, 0.5f);
-    // SceneObject combined3 = AdditiveSDF(combined2, metaBalls);
-    // SceneObject combined4 = AdditiveSDF(combined3, menglerSponge);
-
-    return menglerSponge;
+    return finalObject;
 }
 
 vec3 EstimateNormal(vec3 samplePoint)
