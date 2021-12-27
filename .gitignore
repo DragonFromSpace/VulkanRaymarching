@@ -38,4 +38,5 @@ x86/
 
 output/
 VulkanRaymarching/imgui.ini
-3rdParty/
+3rdParty/GLFW/
+3rdParty/Vulkan/
