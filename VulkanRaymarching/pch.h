@@ -4,7 +4,6 @@
 #define GLFW_INCLUDE_VULKAN
 #include <GLFW/glfw3.h>
 #include "glm/ext.hpp"
-#include "glm/ext.hpp"
 #include "glm/gtx/string_cast.hpp"
 
 #include "vk_mem_alloc.h"
