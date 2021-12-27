@@ -267,7 +267,6 @@ void VkEngine::InitVulkan()
 
 	//Get gpu properties
 	vkGetPhysicalDeviceProperties(m_PhysicalDevice, &m_GPUProperties);
-	std::cout << "The gpu min alignment for uniform buffers is: " << m_GPUProperties.limits.minUniformBufferOffsetAlignment << '\n';
 
 	//Create logical device
 	vkb::DeviceBuilder deviceBuilder{ physDevice };
@@ -282,23 +281,23 @@ void VkEngine::InitVulkan()
 	m_GraphicsQueue = device.get_queue(vkb::QueueType::graphics).value();
 	m_GraphicsQueueFamily = device.get_queue_index(vkb::QueueType::graphics).value();
 
-	//Get compute queue (strt with looking for dedicated queue)
-	auto dedicatedComputeQueue = device.get_dedicated_queue(vkb::QueueType::compute);
-	if(dedicatedComputeQueue)
+	//does graphics queue support compute?
+	if ((device.queue_families[m_GraphicsQueueFamily].queueFlags & 2) == 2)
 	{
-		m_ComputeQueue = dedicatedComputeQueue.value();
-		m_ComputeQueueFamily = device.get_dedicated_queue_index(vkb::QueueType::compute).value();
+		std::cout << "graphics queue supports computing" << '\n';
 	}
-	else
-	{
-		//look for normal queue with compute
-		auto computeQueue = device.get_queue(vkb::QueueType::compute);
-		if(!computeQueue)
-			throw std::runtime_error("VkEngine::InitVulkan() >> No compute queue found on this device!");
 
-		m_ComputeQueue = computeQueue.value();
-		m_ComputeQueueFamily = device.get_queue_index(vkb::QueueType::compute).value();
+	//Get compute queue
+	auto computeQueue = device.get_queue(vkb::QueueType::compute);
+	if (!computeQueue)
+	{
+		
+
+		throw std::runtime_error("VkEngine::InitVulkan() >> No compute queue found on this device!");
 	}
+
+	m_ComputeQueue = computeQueue.value();
+	m_ComputeQueueFamily = device.get_queue_index(vkb::QueueType::compute).value();
 
 	//Initialize memory allocator
 	VmaAllocatorCreateInfo allocatorInfo{};

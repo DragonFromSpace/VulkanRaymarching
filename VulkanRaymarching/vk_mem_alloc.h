@@ -3652,7 +3652,6 @@ void *aligned_alloc(size_t alignment, size_t size)
     static inline void VmaUint32ToStr(char* outStr, size_t strLen, uint32_t num)
     {
         snprintf(outStr, strLen, "%u", static_cast<unsigned int>(num));
-        //sprintf_s(outStr, strLen, "%u", static_cast<unsigned int>(num));
     }
     static inline void VmaUint64ToStr(char* outStr, size_t strLen, uint64_t num)
     {
