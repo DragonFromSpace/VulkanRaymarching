@@ -281,23 +281,26 @@ void VkEngine::InitVulkan()
 	m_GraphicsQueue = device.get_queue(vkb::QueueType::graphics).value();
 	m_GraphicsQueueFamily = device.get_queue_index(vkb::QueueType::graphics).value();
 
-	//does graphics queue support compute?
-	if ((device.queue_families[m_GraphicsQueueFamily].queueFlags & 2) == 2)
-	{
-		std::cout << "graphics queue supports computing" << '\n';
-	}
-
 	//Get compute queue
 	auto computeQueue = device.get_queue(vkb::QueueType::compute);
 	if (!computeQueue)
 	{
-		
-
-		throw std::runtime_error("VkEngine::InitVulkan() >> No compute queue found on this device!");
+		//does graphics queue support compute?
+		if ((device.queue_families[m_GraphicsQueueFamily].queueFlags & 2) == 2)
+		{
+			m_ComputeQueue = m_GraphicsQueue;
+			m_ComputeQueueFamily = m_GraphicsQueueFamily;
+		}
+		else
+		{
+			throw std::runtime_error("VkEngine::InitVulkan() >> No compute queue found on this device!");
+		}
 	}
-
-	m_ComputeQueue = computeQueue.value();
-	m_ComputeQueueFamily = device.get_queue_index(vkb::QueueType::compute).value();
+	else
+	{
+		m_ComputeQueue = computeQueue.value();
+		m_ComputeQueueFamily = device.get_queue_index(vkb::QueueType::compute).value();
+	}
 
 	//Initialize memory allocator
 	VmaAllocatorCreateInfo allocatorInfo{};
@@ -332,40 +335,6 @@ void VkEngine::InitSwapchain()
 			for (VkImageView image : m_SwapchainImageViews)
 				vkDestroyImageView(m_Device, image, nullptr);
 			vkDestroySwapchainKHR(m_Device, m_Swapchain, nullptr);
-		});
-}
-
-void VkEngine::InitCommands()
-{
-	//Create graphics and compute command pool
-	VkCommandPoolCreateInfo commandPoolInfo = vkInit::CommandPoolCreateInfo(m_GraphicsQueueFamily, VK_COMMAND_POOL_CREATE_RESET_COMMAND_BUFFER_BIT);
-	VkCommandPoolCreateInfo computeCommandPool = vkInit::CommandPoolCreateInfo(m_ComputeQueueFamily, VK_COMMAND_POOL_CREATE_RESET_COMMAND_BUFFER_BIT);
-
-	for (unsigned int i = 0; i < m_OverlappingFrameCount; ++i)
-	{
-		VK_CHECK(vkCreateCommandPool(m_Device, &commandPoolInfo, nullptr, &m_Frames[i].graphicsCommandPool), "VkEngine::InitCommands() >> failed to create command pool!");
-		VK_CHECK(vkCreateCommandPool(m_Device, &computeCommandPool, nullptr, &m_Frames[i].computeCommandPool), "VkEngine::InitCommands() >> failed to create compute command pool!");
-
-		//Create command buffer
-		VkCommandBufferAllocateInfo allocInfo = vkInit::CommandBufferAllocateInfo(m_Frames[i].graphicsCommandPool, 1);
-		VK_CHECK(vkAllocateCommandBuffers(m_Device, &allocInfo, &m_Frames[i].graphicsCommandBuffer), "VkEngine::InitCommands() >> Failed to allocate command buffers");
-
-		VkCommandBufferAllocateInfo computeAllocInfo = vkInit::CommandBufferAllocateInfo(m_Frames[i].computeCommandPool, 1);
-		VK_CHECK(vkAllocateCommandBuffers(m_Device, &computeAllocInfo, &m_Frames[i].computeCommandBuffer), "VkEngine::InitCommands() >> Failed to allocate compute command buffers");
-
-		m_DeletionQueue.PushFunction([=]()
-			{
-				vkDestroyCommandPool(m_Device, m_Frames[i].graphicsCommandPool, nullptr);
-				vkDestroyCommandPool(m_Device, m_Frames[i].computeCommandPool, nullptr);
-			});
-	}
-
-	//create command pool for the immediate submit
-	VkCommandPoolCreateInfo uploadCommandPool = vkInit::CommandPoolCreateInfo(m_GraphicsQueueFamily);
-	VK_CHECK(vkCreateCommandPool(m_Device, &uploadCommandPool, nullptr, &m_UploadContext.commandPool), "VkEngine::InitCommands() >> Failed to create upload command pool!");
-	m_DeletionQueue.PushFunction([=]()
-		{
-			vkDestroyCommandPool(m_Device, m_UploadContext.commandPool, nullptr);
 		});
 }
 
@@ -447,6 +416,40 @@ void VkEngine::InitUIRenderPass()
 
 	VK_CHECK(vkCreateRenderPass(m_Device, &renderPass, nullptr, &m_UIRenderPass), "VkEngine::InitUIRenderPass() >> Failed to create render pass!");
 	m_DeletionQueue.PushFunction([=]() {vkDestroyRenderPass(m_Device, m_UIRenderPass, nullptr); });
+}
+
+void VkEngine::InitCommands()
+{
+	//Create graphics and compute command pool
+	VkCommandPoolCreateInfo commandPoolInfo = vkInit::CommandPoolCreateInfo(m_GraphicsQueueFamily, VK_COMMAND_POOL_CREATE_RESET_COMMAND_BUFFER_BIT);
+	VkCommandPoolCreateInfo computeCommandPool = vkInit::CommandPoolCreateInfo(m_ComputeQueueFamily, VK_COMMAND_POOL_CREATE_RESET_COMMAND_BUFFER_BIT);
+
+	for (unsigned int i = 0; i < m_OverlappingFrameCount; ++i)
+	{
+		VK_CHECK(vkCreateCommandPool(m_Device, &commandPoolInfo, nullptr, &m_Frames[i].graphicsCommandPool), "VkEngine::InitCommands() >> failed to create command pool!");
+		VK_CHECK(vkCreateCommandPool(m_Device, &computeCommandPool, nullptr, &m_Frames[i].computeCommandPool), "VkEngine::InitCommands() >> failed to create compute command pool!");
+
+		//Create command buffer
+		VkCommandBufferAllocateInfo allocInfo = vkInit::CommandBufferAllocateInfo(m_Frames[i].graphicsCommandPool, 1);
+		VK_CHECK(vkAllocateCommandBuffers(m_Device, &allocInfo, &m_Frames[i].graphicsCommandBuffer), "VkEngine::InitCommands() >> Failed to allocate command buffers");
+
+		VkCommandBufferAllocateInfo computeAllocInfo = vkInit::CommandBufferAllocateInfo(m_Frames[i].computeCommandPool, 1);
+		VK_CHECK(vkAllocateCommandBuffers(m_Device, &computeAllocInfo, &m_Frames[i].computeCommandBuffer), "VkEngine::InitCommands() >> Failed to allocate compute command buffers");
+
+		m_DeletionQueue.PushFunction([=]()
+			{
+				vkDestroyCommandPool(m_Device, m_Frames[i].graphicsCommandPool, nullptr);
+				vkDestroyCommandPool(m_Device, m_Frames[i].computeCommandPool, nullptr);
+			});
+	}
+
+	//create command pool for the immediate submit
+	VkCommandPoolCreateInfo uploadCommandPool = vkInit::CommandPoolCreateInfo(m_GraphicsQueueFamily);
+	VK_CHECK(vkCreateCommandPool(m_Device, &uploadCommandPool, nullptr, &m_UploadContext.commandPool), "VkEngine::InitCommands() >> Failed to create upload command pool!");
+	m_DeletionQueue.PushFunction([=]()
+		{
+			vkDestroyCommandPool(m_Device, m_UploadContext.commandPool, nullptr);
+		});
 }
 
 void VkEngine::InitFramebuffers()
