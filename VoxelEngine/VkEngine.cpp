@@ -3,6 +3,7 @@
 #include "ComputeShader.h"
 #include <string>
 #include <chrono>
+#include <ctime>
 
 static bool isMouseHidden = true;
 
@@ -52,9 +53,6 @@ void VkEngine::Init()
 	//init vulkan
 	InitVulkan();
 	InitSwapchain();
-	InitDefaultRenderPass();
-	InitUIRenderPass();
-	InitFramebuffers();
 	InitCommands();
 	InitSyncStructures();
 	LoadTextures();
@@ -101,6 +99,7 @@ void VkEngine::Run()
 	while (!glfwWindowShouldClose(m_pWindow))
 	{
 		glfwPollEvents();
+
 		Update();
 
 		//Imgui
@@ -164,7 +163,13 @@ void VkEngine::DrawCompute(uint32_t frameNumber)
 
 void VkEngine::DrawGraphics(uint32_t frameNumber)
 {
-	//START RECORDING GRAPHICS COMMAND BUFFER
+	vkQueueWaitIdle(m_GraphicsQueue);
+
+	vkWaitForFences(m_Device, 1, &m_Frames[frameNumber].graphicsFence, VK_TRUE, UINT64_MAX);
+	vkResetFences(m_Device, 1, &m_Frames[frameNumber].graphicsFence);
+
+	vkResetCommandBuffer(m_Frames[frameNumber].graphicsCommandBuffer, 0);
+
 	VkCommandBufferBeginInfo beginInfo = vkInit::CommandBufferBeginInfo(VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT);
 	vkBeginCommandBuffer(m_Frames[frameNumber].graphicsCommandBuffer, &beginInfo);
 
@@ -187,26 +192,7 @@ void VkEngine::DrawGraphics(uint32_t frameNumber)
 	barrier.dstAccessMask = 0;
 
 	vkCmdPipelineBarrier(m_Frames[frameNumber].graphicsCommandBuffer, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT, 0, 0, nullptr, 0, nullptr, 1, &barrier);
-	
-	//Begin a render pass
-	VkClearValue clearValue{};
-	clearValue.color = { 0.7f, 0.1f, 0.1f, 1.0f };
-
-	VkRenderPassBeginInfo uiRpBeginInfo{};
-	uiRpBeginInfo.sType = VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO;
-	uiRpBeginInfo.renderPass = m_UIRenderPass;
-	uiRpBeginInfo.framebuffer = m_Framebuffers[frameNumber];
-	uiRpBeginInfo.renderArea.extent.width = m_WindowExtent.width;
-	uiRpBeginInfo.renderArea.extent.height = m_WindowExtent.height;
-	uiRpBeginInfo.clearValueCount = 1;
-	uiRpBeginInfo.pClearValues = &clearValue;
-
-	//Secons pass for the UI
-	vkCmdBeginRenderPass(m_Frames[frameNumber].graphicsCommandBuffer, &uiRpBeginInfo, VK_SUBPASS_CONTENTS_INLINE);
-	//m_ImGui.Render(m_Frames[frameNumber].graphicsCommandBuffer);
-	vkCmdEndRenderPass(m_Frames[frameNumber].graphicsCommandBuffer);
-
-	vkEndCommandBuffer(m_Frames[frameNumber].graphicsCommandBuffer);
+	VK_CHECK(vkEndCommandBuffer(m_Frames[frameNumber].graphicsCommandBuffer), "VkEngine::DrawGraphics() Failed to end command buffer!");
 
 	//Submit the queue
 	VkPipelineStageFlags waitPipelineFlag = VK_PIPELINE_STAGE_VERTEX_INPUT_BIT;
@@ -218,11 +204,6 @@ void VkEngine::DrawGraphics(uint32_t frameNumber)
 	submitInfo.pSignalSemaphores = &m_Frames[frameNumber].imageTransSemaphore;
 
 	vkQueueSubmit(m_GraphicsQueue, 1, &submitInfo, m_Frames[frameNumber].graphicsFence);
-
-	//Make sure the graphics queue is done before presenting the final image
-	vkWaitForFences(m_Device, 1, &m_Frames[frameNumber].graphicsFence, VK_TRUE, UINT64_MAX);
-	vkResetFences(m_Device, 1, &m_Frames[frameNumber].graphicsFence);
-	vkResetCommandBuffer(m_Frames[frameNumber].graphicsCommandBuffer, 0);
 
 	//PRESENT the image in the swapchain
 	VkPresentInfoKHR presentInfo = vkInit::PresentInfoKHR();
@@ -338,86 +319,6 @@ void VkEngine::InitSwapchain()
 		});
 }
 
-void VkEngine::InitDefaultRenderPass()
-{
-	//COLOR
-	VkAttachmentDescription colorAttachment{};
-	colorAttachment.format = m_SwapchainImageFormat;
-	colorAttachment.samples = VK_SAMPLE_COUNT_1_BIT;
-	colorAttachment.loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR;
-	colorAttachment.storeOp = VK_ATTACHMENT_STORE_OP_STORE;
-	colorAttachment.stencilLoadOp = VK_ATTACHMENT_LOAD_OP_DONT_CARE;
-	colorAttachment.stencilStoreOp = VK_ATTACHMENT_STORE_OP_DONT_CARE;
-	colorAttachment.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
-	colorAttachment.finalLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
-
-	VkAttachmentReference colorAttachmentRef{};
-	colorAttachmentRef.attachment = 0;
-	colorAttachmentRef.layout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
-
-	//Subpass and renderpass
-	VkSubpassDescription subpass{};
-	subpass.pipelineBindPoint = VK_PIPELINE_BIND_POINT_GRAPHICS;
-	subpass.colorAttachmentCount = 1;
-	subpass.pColorAttachments = &colorAttachmentRef;
-	subpass.pDepthStencilAttachment = nullptr;
-
-	VkRenderPassCreateInfo renderPass{};
-	renderPass.sType = VK_STRUCTURE_TYPE_RENDER_PASS_CREATE_INFO;
-	renderPass.attachmentCount = 1;
-	renderPass.pAttachments = &colorAttachment;
-	renderPass.subpassCount = 1;
-	renderPass.pSubpasses = &subpass;
-
-	VK_CHECK(vkCreateRenderPass(m_Device, &renderPass, nullptr, &m_RenderPass), "VkEngine::InitDefaultRenderPass() >> Failed to create render pass!");
-	m_DeletionQueue.PushFunction([=]() {vkDestroyRenderPass(m_Device, m_RenderPass, nullptr); });
-}
-
-void VkEngine::InitUIRenderPass()
-{
-	//COLOR
-	VkAttachmentDescription colorAttachment{};
-	colorAttachment.format = m_SwapchainImageFormat;
-	colorAttachment.samples = VK_SAMPLE_COUNT_1_BIT;
-	colorAttachment.loadOp = VK_ATTACHMENT_LOAD_OP_LOAD;
-	colorAttachment.storeOp = VK_ATTACHMENT_STORE_OP_STORE;
-	colorAttachment.stencilLoadOp = VK_ATTACHMENT_LOAD_OP_DONT_CARE;
-	colorAttachment.stencilStoreOp = VK_ATTACHMENT_STORE_OP_DONT_CARE;
-	colorAttachment.initialLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
-	colorAttachment.finalLayout = VK_IMAGE_LAYOUT_PRESENT_SRC_KHR;
-
-	VkAttachmentReference colorAttachmentRef{};
-	colorAttachmentRef.attachment = 0;
-	colorAttachmentRef.layout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
-
-	//Subpass and renderpass
-	VkSubpassDescription subpass{};
-	subpass.pipelineBindPoint = VK_PIPELINE_BIND_POINT_GRAPHICS;
-	subpass.colorAttachmentCount = 1;
-	subpass.pColorAttachments = &colorAttachmentRef;
-	subpass.pDepthStencilAttachment = nullptr;
-
-	VkSubpassDependency dependency{};
-	dependency.srcSubpass = VK_SUBPASS_EXTERNAL;
-	dependency.dstSubpass = 0;
-	dependency.srcStageMask = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
-	dependency.dstStageMask = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
-	dependency.srcAccessMask = 0;
-	dependency.dstAccessMask = VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT;
-
-	VkRenderPassCreateInfo renderPass{};
-	renderPass.sType = VK_STRUCTURE_TYPE_RENDER_PASS_CREATE_INFO;
-	renderPass.attachmentCount = 1;
-	renderPass.pAttachments = &colorAttachment;
-	renderPass.subpassCount = 1;
-	renderPass.pSubpasses = &subpass;
-	renderPass.dependencyCount = 1;
-	renderPass.pDependencies = &dependency;
-
-	VK_CHECK(vkCreateRenderPass(m_Device, &renderPass, nullptr, &m_UIRenderPass), "VkEngine::InitUIRenderPass() >> Failed to create render pass!");
-	m_DeletionQueue.PushFunction([=]() {vkDestroyRenderPass(m_Device, m_UIRenderPass, nullptr); });
-}
-
 void VkEngine::InitCommands()
 {
 	//Create graphics and compute command pool
@@ -450,22 +351,6 @@ void VkEngine::InitCommands()
 		{
 			vkDestroyCommandPool(m_Device, m_UploadContext.commandPool, nullptr);
 		});
-}
-
-void VkEngine::InitFramebuffers()
-{
-	VkFramebufferCreateInfo framebufferInfo = vkInit::FramebufferCreateInfo(m_RenderPass, m_WindowExtent);
-
-	uint32_t imageCount = (uint32_t)m_SwapchainImages.size();
-	m_Framebuffers = std::vector<VkFramebuffer>(imageCount);
-
-	for (uint32_t i = 0; i < imageCount; ++i)
-	{
-		framebufferInfo.attachmentCount = 1;
-		framebufferInfo.pAttachments = &m_SwapchainImageViews[i];
-		VK_CHECK(vkCreateFramebuffer(m_Device, &framebufferInfo, nullptr, &m_Framebuffers[i]), "VkEngine::InitFramebuffers() >> Failed to create framebuffer!");
-		m_DeletionQueue.PushFunction([=]() {vkDestroyFramebuffer(m_Device, m_Framebuffers[i], nullptr); });
-	}
 }
 
 void VkEngine::InitSyncStructures()

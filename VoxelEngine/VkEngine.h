@@ -126,9 +126,6 @@ private:
 
 	void InitVulkan();
 	void InitSwapchain();
-	void InitDefaultRenderPass();
-	void InitUIRenderPass();
-	void InitFramebuffers();
 	void InitCommands();
 	void InitSyncStructures();
 	void InitShaders();
@@ -180,10 +177,6 @@ private:
 
 	VkQueue m_ComputeQueue = VK_NULL_HANDLE;
 	uint32_t m_ComputeQueueFamily;
-
-	VkRenderPass m_RenderPass = VK_NULL_HANDLE;
-	VkRenderPass m_UIRenderPass = VK_NULL_HANDLE;
-	std::vector<VkFramebuffer> m_Framebuffers;
 
 	VkDescriptorPool m_DescriptorPool;
 
